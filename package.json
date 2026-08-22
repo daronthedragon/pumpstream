@@ -1,0 +1,45 @@
+{
+  "name": "pumpstream",
+  "version": "0.1.0",
+  "description": "Live pump.fun comments as an event stream, gated to wallets that actually hold the token. Library + local WebSocket/HTTP server.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./server": "./src/server.js",
+    "./adapter": "./src/adapter.js"
+  },
+  "bin": {
+    "pumpstream": "src/cli.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node src/cli.js",
+    "discover": "node src/cli.js --discover",
+    "test": "node --test test/smoke.test.js test/overlay.test.js",
+    "test:live": "node test/live.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "pump.fun",
+    "solana",
+    "streaming",
+    "twitch",
+    "obs",
+    "chat",
+    "token-gated",
+    "holders"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  }
+}

@@ -1,0 +1,49 @@
+<!--
+  Consuming the local server from anywhere that speaks WebSocket.
+  Start the server first:  npx pumpstream <mint> --holders-only
+  Then open this file in a browser.
+
+  This is a plain consumer example, not a styled stream overlay.
+-->
+<meta charset="utf-8" />
+<title>pumpstream consumer</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, monospace; background: #111; color: #eee; padding: 20px; }
+  li { margin-bottom: 6px; }
+  .bal { color: #6f6; }
+  .who { color: #9cf; }
+</style>
+
+<h3>holder comments <small id="status">connecting…</small></h3>
+<ul id="feed"></ul>
+
+<script>
+  const ws = new WebSocket('ws://127.0.0.1:8787');
+  const feed = document.getElementById('feed');
+  const status = document.getElementById('status');
+
+  ws.onopen = () => (status.textContent = 'connected');
+  ws.onclose = () => (status.textContent = 'disconnected');
+
+  ws.onmessage = (ev) => {
+    const { type, data } = JSON.parse(ev.data);
+    if (type === 'drift') {
+      status.textContent = 'UPSTREAM DRIFT: ' + data.kind;
+      return;
+    }
+    if (type !== 'comment') return;
+
+    const li = document.createElement('li');
+    const who = document.createElement('span');
+    who.className = 'who';
+    who.textContent = data.username || data.author.slice(0, 6);
+    const bal = document.createElement('span');
+    bal.className = 'bal';
+    bal.textContent = ` [${Math.round(data.balance).toLocaleString()}] `;
+    // textContent, not innerHTML — chat is untrusted input.
+    li.append(who, bal, document.createTextNode(data.text));
+
+    feed.prepend(li);
+    while (feed.children.length > 50) feed.lastChild.remove();
+  };
+</script>
