@@ -11,7 +11,7 @@ const has = (name) => argv.includes(`--${name}`);
 
 // Flags that consume the next argument — needed so `--port 8787` does not
 // leave 8787 looking like a mint.
-const TAKES_VALUE = new Set(['port', 'min-balance', 'rpc', 'history', 'prefix']);
+const TAKES_VALUE = new Set(['port', 'min-balance', 'rpc', 'history', 'prefix', 'top']);
 
 function positionals() {
   const out = [];
@@ -37,6 +37,7 @@ Options
   --port <n>          local server port            (default 8787)
   --holders-only      drop comments from non-holders
   --min-balance <n>   tokens required to count as a holder   (default 0)
+  --top <n>           only the n largest holders may appear
   --rpc <url>         Solana RPC (use a paid one for real traffic)
   --history <n>       replay the last n comments on connect  (default 0)
   --prefix <s>        command prefix, '' to disable          (default !)
@@ -84,6 +85,7 @@ try {
     rpcUrl: flag('rpc', undefined),
     history: Number(flag('history', 0)),
     commandPrefix: flag('prefix', '!'),
+    topHolders: Number(flag('top', 0)),
   });
 } catch (err) {
   // A startup failure is a user-facing message, not a stack trace.

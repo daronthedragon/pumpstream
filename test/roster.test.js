@@ -217,3 +217,71 @@ test('concurrent first lookups share a single roster fetch', async () => {
     globalThis.fetch = original;
   }
 });
+
+/* ── rank and share ───────────────────────────────────────────────────────
+ * Free once the roster exists: one sort per refresh instead of a query per
+ * commenter.
+ */
+
+test('rank is 1-based by size, and share sums to the whole', async () => {
+  const original = globalThis.fetch;
+  const big = pubkey(20), mid = pubkey(21), small = pubkey(22);
+  stubRoster({
+    decimals: 0,
+    accounts: [account(small, 10n), account(big, 70n), account(mid, 20n)],
+  });
+  try {
+    const g = new HolderGate({ mint: MINT });
+    const a = await g.check(base58(big));
+    const b = await g.check(base58(mid));
+    const c = await g.check(base58(small));
+
+    assert.deepEqual([a.rank, b.rank, c.rank], [1, 2, 3], 'biggest bag is #1');
+    assert.equal(a.share, 0.7);
+    assert.equal(b.share, 0.2);
+    assert.equal(c.share, 0.1);
+    // Float sums are float sums: 0.7 + 0.2 + 0.1 is 0.9999999999999999.
+    assert.ok(Math.abs(a.share + b.share + c.share - 1) < 1e-9);
+    assert.equal(g.rosterTotal, 100);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('a non-holder has no rank rather than a misleading one', async () => {
+  const original = globalThis.fetch;
+  stubRoster({ decimals: 0, accounts: [account(pubkey(23), 5n)] });
+  try {
+    const g = new HolderGate({ mint: MINT });
+    const r = await g.check(base58(pubkey(99)));
+    assert.equal(r.rank, null, 'null, not 0 and not last place');
+    assert.equal(r.share, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('topHolders gates the feed to the largest bags', async () => {
+  const { PumpComments } = await import('../src/index.js');
+  const original = globalThis.fetch;
+  const big = pubkey(30), small = pubkey(31);
+  stubRoster({ decimals: 0, accounts: [account(big, 100n), account(small, 1n)] });
+  try {
+    const feed = new PumpComments({ mint: MINT, topHolders: 1 });
+    feed.on('error', () => {});
+    const shown = [];
+    feed.on('comment', (c) => shown.push(c.text));
+
+    const msg = (text, owner) => ({
+      id: text, roomId: MINT, username: 'u', userAddress: base58(owner),
+      message: text, timestamp: '2026-08-08T18:23:01.144Z', messageType: 'REGULAR',
+    });
+    await feed.ingest(msg('from #1', big));
+    await feed.ingest(msg('from #2', small));
+
+    assert.deepEqual(shown, ['from #1'], 'only the top holder got through');
+    feed.stop();
+  } finally {
+    globalThis.fetch = original;
+  }
+});

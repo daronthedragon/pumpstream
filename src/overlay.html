@@ -127,6 +127,12 @@
     white-space: nowrap;
   }
   .bal { background: rgba(128, 128, 128, 0.28); }
+  .rank {
+    background: rgba(128, 128, 128, 0.28);
+    font-variant-numeric: tabular-nums;
+  }
+  /* The top three are the ones worth looking at. */
+  .rank.top { background: #f5c451; color: #2b1d00; }
   .time { background: none; padding: 2px 0; opacity: 0.6; }
   .tag {
     font-weight: 700;
@@ -259,6 +265,9 @@
     // content
     avatars: bool('avatars', d('avatars', true)),
     balance: bool('balance', true),
+    share: bool('share', false),
+    rank: bool('rank', true),
+    ranktop: num('ranktop', 100, 1, 100000),
     names: bool('names', true),
     replies: bool('replies', true),
     badges: bool('badges', true),
@@ -405,11 +414,26 @@
       tag.textContent = c.isCreator ? 'dev' : 'mod';
       head.append(tag);
     }
+    // Rank only exists when the roster is available, and only the sharp end
+    // of it is interesting — #1841 is noise, #3 is a talking point.
+    if (opt.rank && c.rank > 0 && c.rank <= opt.ranktop) {
+      const r = document.createElement('span');
+      r.className = c.rank <= 3 ? 'rank top' : 'rank';
+      r.textContent = '#' + c.rank;
+      head.append(r);
+    }
     if (opt.balance && c.balance > 0) {
       const bal = document.createElement('span');
       bal.className = 'bal';
       bal.textContent = format(c.balance);
       head.append(bal);
+    }
+    if (opt.share && c.share > 0) {
+      const sh = document.createElement('span');
+      sh.className = 'bal';
+      // Sub-0.01% rounds to nothing useful, so give small holders a floor.
+      sh.textContent = c.share >= 0.0001 ? (c.share * 100).toFixed(2) + '%' : '<0.01%';
+      head.append(sh);
     }
     if (opt.time && c.timestamp) {
       const t = document.createElement('span');

@@ -89,6 +89,7 @@ export class HolderGate {
     this.rosterRefused = false;
     this.tokenProgram = null;
     this.decimals = null;
+    this.rosterTotal = 0;
 
     this.cache = new Map(); // wallet -> { balance, at }
     this.inflight = new Map(); // wallet -> Promise
@@ -120,7 +121,13 @@ export class HolderGate {
     const roster = await this.#ensureRoster();
     if (roster) {
       this.stats.rosterHits++;
-      return this.#result(roster.get(wallet) ?? 0, false);
+      const entry = roster.get(wallet);
+      if (!entry) return { holder: false, balance: 0, rank: null, share: 0 };
+      return {
+        ...this.#result(entry.balance, false),
+        rank: entry.rank,
+        share: entry.share,
+      };
     }
 
     const hit = this.cache.get(wallet);
@@ -203,17 +210,35 @@ export class HolderGate {
       ]);
 
       const scale = 10 ** this.decimals;
-      const roster = new Map();
+      const balances = new Map();
+      let total = 0;
       for (const a of accounts) {
         const buf = Buffer.from(a.account.data[0], 'base64');
         if (buf.length < 40) continue;
         const amount = buf.readBigUInt64LE(32);
         if (amount === 0n) continue;
         const owner = base58(buf.subarray(0, 32));
+        const ui = Number(amount) / scale;
         // A wallet can hold the same mint across several token accounts.
-        roster.set(owner, (roster.get(owner) ?? 0) + Number(amount) / scale);
+        balances.set(owner, (balances.get(owner) ?? 0) + ui);
+        total += ui;
       }
 
+      // Having every holder in hand makes rank and share free — one sort per
+      // refresh instead of a query per commenter. Rank is 1-based, biggest
+      // bag first; share is a fraction of everything sitting in token
+      // accounts, which is the honest denominator here.
+      const ranked = [...balances].sort((a, b) => b[1] - a[1]);
+      const roster = new Map();
+      ranked.forEach(([owner, balance], i) => {
+        roster.set(owner, {
+          balance,
+          rank: i + 1,
+          share: total > 0 ? balance / total : 0,
+        });
+      });
+
+      this.rosterTotal = total;
       this.roster = roster;
       this.rosterAt = Date.now();
       this.stats.rosterFetches++;

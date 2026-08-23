@@ -94,6 +94,8 @@ await feed.start();
   reactions: { ':fire:': { recent: ['4ua8…'], avatars: ['https://…'] } },  // null if none
   holder: true,                  // filled in by the gate
   balance: 412900,               // UI amount, summed across token accounts
+  rank: 179,                     // 1 = biggest holder; null if not a holder
+  share: 0.00104,                // fraction of supply held
   holderUnknown: false,          // true = the lookup FAILED, not "holds nothing"
   historical: false,             // true if from the replay buffer
   raw: { … }                     // untouched upstream object
@@ -107,6 +109,7 @@ await feed.start();
 | `mint` / `mints` | — | token(s) to follow |
 | `holdersOnly` | `false` | drop non-holders instead of just labelling them |
 | `minBalance` | `0` | UI-amount required to count as a holder |
+| `topHolders` | `0` | only the N largest holders may appear (needs the roster) |
 | `rpcUrl` | public mainnet | **use a paid RPC for real traffic** |
 | `holderTtlMs` | `60000` | how long a per-wallet balance stays fresh |
 | `rosterTtlMs` | `120000` | how often the holder roster is refreshed |
@@ -204,6 +207,10 @@ One parameter for a whole look. Anything you set explicitly still wins over the 
 
 *`?preset=minimal&font=26&accent=ffd479` — no bubbles at all, held legible by the text shadow.*
 
+![Rank and share badges](docs/overlay-rank.png)
+
+*`?share=1` — `#27` is the holder's rank, then their balance and share of supply. Holders outside `ranktop` show balance without a rank.*
+
 ### Every option
 
 **Layout**
@@ -240,6 +247,9 @@ One parameter for a whole look. Anything you set explicitly still wins over the 
 | `avatars` | `1` | profile pictures |
 | `names` | `1` | usernames |
 | `balance` | `1` | holder balance badge |
+| `rank` | `1` | `#N` badge for holders inside `ranktop` |
+| `ranktop` | `100` | how deep the rank badge goes — `#3` is a talking point, `#1841` is noise |
+| `share` | `0` | percentage of supply held |
 | `badges` | `1` | `dev` / `mod` tags |
 | `replies` | `1` | quoted parent of a reply |
 | `time` | `0` | `HH:MM` timestamp |
@@ -332,6 +342,13 @@ first lookup (builds roster)  463ms   2,347 holders
                              rpcCalls 2   rpcErrors 0
 ```
 
+Having every holder in hand also makes **rank** and **share of supply** free — one sort per refresh instead of a query per commenter. A comment from the #3 holder can say so, and `topHolders` can gate the feed to the biggest bags:
+
+```
+#1     13.25%   128,446,584
+#179    0.104%    1,012,129
+```
+
 A wallet missing from the roster is a **definitive zero**, not a guess — which is a stronger answer than the per-wallet path can give. The roster refreshes every two minutes by default (`rosterTtlMs`) and serves the existing copy while it does, so no comment ever waits on the network.
 
 Some endpoints refuse `getProgramAccounts` because it is expensive to serve. That is not a failure — the gate falls back to per-wallet `getTokenAccountsByOwner`, and that path adapts too. Batching is the fast path, but measured against `api.mainnet-beta.solana.com` the *same* lookups behave completely differently depending on how they are sent:
@@ -367,7 +384,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-88 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+91 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

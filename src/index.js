@@ -37,6 +37,7 @@ export class PumpComments extends EventEmitter {
     maxBackoffMs = 30_000,
     seenLimit = 5_000,
     commandPrefix = '!',
+    topHolders = 0,
   } = {}) {
     super();
     this.mints = (mint ? [mint] : mints).filter(Boolean);
@@ -45,6 +46,9 @@ export class PumpComments extends EventEmitter {
     this.holdersOnly = holdersOnly;
     this.history = history;
     this.commandPrefix = commandPrefix;
+    // Only the biggest N bags get through. Needs the roster (rank comes from
+    // it), so it has no effect on endpoints that refuse getProgramAccounts.
+    this.topHolders = topHolders;
     this.maxBackoffMs = maxBackoffMs;
     this.seenLimit = seenLimit;
 
@@ -253,15 +257,22 @@ export class PumpComments extends EventEmitter {
 
     const gate = this.gates.get(mint);
     if (gate) {
-      const { holder, balance, unknown } = await gate.check(comment.author);
+      const { holder, balance, unknown, rank, share } = await gate.check(comment.author);
       comment.holder = holder;
       comment.balance = balance;
       // holder:false + holderUnknown:true means "the RPC would not answer",
       // which is a very different claim from "this wallet holds nothing".
       comment.holderUnknown = Boolean(unknown);
+      // Free once the roster exists; null when it does not.
+      comment.rank = rank ?? null;
+      comment.share = share ?? null;
     }
 
     if (this.holdersOnly && !comment.holder) {
+      this.stats.filtered++;
+      return this.emit('filtered', comment);
+    }
+    if (this.topHolders > 0 && !(comment.rank > 0 && comment.rank <= this.topHolders)) {
       this.stats.filtered++;
       return this.emit('filtered', comment);
     }
