@@ -331,6 +331,56 @@ npm run test:transparency -- <ws-password> # real OBS output, alpha channel
 
 The live check runs the whole path — socket, normalize, holder gate, local server, WebSocket subscriber. The transparency check decodes what OBS actually renders and fails if the overlay ever paints over your scene.
 
+## Contributing
+
+Issues and pull requests are welcome. It is a small codebase — five source files — and the fastest way in is to run it against a live room:
+
+```bash
+git clone https://github.com/daronthedragon/pumpstream
+cd pumpstream
+npm install
+npm run discover          # find a token that is live right now
+npm start -- <mint> --history 20
+```
+
+Then open `http://localhost:8787/overlay/config` to see the overlay with real chat in it.
+
+### If pump.fun broke it
+
+This is the most likely reason you are here, and it is expected: pump.fun has no public API and changes without notice.
+
+**Everything upstream-specific lives in [`src/adapter.js`](src/adapter.js)** — the socket URL, the handshake, the event names, and the field mapping. A breaking change should be a small edit to that one file. If a fix needs to touch anything else, that is a design problem worth raising in the issue.
+
+The feed tries to tell you what broke rather than going quiet. Run it and include what it prints:
+
+```
+[pumpstream] UPSTREAM DRIFT (new-fields): upstream added fields …
+```
+
+A `drift` event with the raw message attached is the single most useful thing to put in a bug report. `npm run test:live` prints one too.
+
+### Things to keep true
+
+These are invariants, not style preferences — each one exists because breaking it fails silently on someone's live stream:
+
+- **The overlay page never paints a background.** Not in a theme, not in a preset. `html` and `body` stay transparent or the overlay covers the scene instead of composing over it. Asserted across every preset in `test/options.test.js`.
+- **Chat is untrusted input.** `textContent`, never `innerHTML`. It is on someone's stream in front of an audience.
+- **The holder gate fails closed.** A failed RPC lookup is `unknown`, never a cached zero balance, and never "is a holder".
+- **Breakage is loud.** If the feed cannot do its job, it emits `drift` or `degraded` and prints to stderr when nobody is listening. An overlay that silently shows nothing is indistinguishable from a quiet chat, which is the worst outcome.
+- **Dependencies stay near zero.** One runtime dependency (`ws`) is a feature. Please make a case in the issue before adding another.
+
+### Tests
+
+The commands are in [Tests](#tests) above. What is expected of a change:
+
+- **New behaviour needs a test in `npm test`.** That suite is offline and deterministic, so it belongs in CI and must stay that way — no live network, no real RPC.
+- **A bug fix needs a test that fails without it.** Every regression in there came from something that actually broke; that is why they are worth keeping.
+- **Touching the overlay's appearance?** Run `npm run test:transparency` if you can. It needs OBS running with obs-websocket enabled and a scene containing the overlay as a browser source, so it is fine to skip — just say so in the PR.
+
+### Pull requests
+
+Keep them focused — one change per PR. Explain what you observed, not just what you changed; for upstream fixes, the payload you saw is worth more than the diff. Run `npm test` before opening, and say plainly if you could not run the live or OBS checks.
+
 ## License
 
 MIT
