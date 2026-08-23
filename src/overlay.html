@@ -41,6 +41,9 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-end;   /* newest at the bottom, like a chat */
+    /* Without this, column flex stretches every pill to the full width and a
+       two-word message gets the same slab as a long one. */
+    align-items: flex-start;
     gap: 10px;
   }
   body.align-right #feed { align-items: flex-end; }

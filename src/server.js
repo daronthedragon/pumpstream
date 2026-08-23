@@ -114,12 +114,31 @@ export async function startServer({
     ws.mintFilter = url.searchParams.get('mint') || null;
     clients.add(ws);
     ws.on('close', () => clients.delete(ws));
+
+    const replay = Math.min(
+      Math.max(0, Number(url.searchParams.get('replay') ?? 10) || 0),
+      bufferSize
+    );
+    const recent = buffer
+      .filter((c) => !ws.mintFilter || c.mint === ws.mintFilter)
+      .slice(-replay);
+
     ws.send(
       JSON.stringify({
         type: 'hello',
-        data: { mints: feed.mints, holdersOnly: feed.holdersOnly, buffered: buffer.length },
+        data: {
+          mints: feed.mints,
+          holdersOnly: feed.holdersOnly,
+          buffered: buffer.length,
+          replaying: recent.length,
+        },
       })
     );
+
+    // OBS tears down and reloads browser sources constantly. Without this a
+    // reconnecting overlay shows an empty box until the next comment happens
+    // to arrive, which reads as "chat is dead". Pass ?replay=0 to opt out.
+    for (const c of recent) ws.send(JSON.stringify({ type: 'comment', data: c }));
   });
 
   await new Promise((resolve, reject) => {

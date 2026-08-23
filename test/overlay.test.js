@@ -183,3 +183,13 @@ test('the page paints no background, so OBS can composite it', async () => {
   );
   app.close();
 });
+
+test('message pills hug their content instead of stretching full width', async () => {
+  // Regression: column flex defaults to align-items:stretch, so a two-word
+  // message rendered as the same full-width slab as a long one.
+  const app = mount();
+  await settle();
+  const feed = app.window.getComputedStyle(app.doc.getElementById('feed'));
+  assert.equal(feed.alignItems, 'flex-start');
+  app.close();
+});

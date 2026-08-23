@@ -125,6 +125,10 @@ http://localhost:8787/overlay
 
 Set the width and height to the area you want chat to occupy. The background is transparent, so it composites straight over your scene — no chroma key, no window capture.
 
+![The overlay running in OBS](docs/overlay.png)
+
+*Actual OBS program output. The blue is a stand-in for gameplay — the overlay paints nothing behind itself.*
+
 Newest comments slide in at the bottom, each with the commenter's name, avatar, and holder balance. Everything is tuned by query string:
 
 | Option | Default | |
@@ -138,6 +142,7 @@ Newest comments slide in at the bottom, each with the commenter's name, avatar, 
 | `balance` | `1` | show the holder balance badge |
 | `replies` | `1` | show the quoted parent of a reply |
 | `status` | `1` | corner badge when the feed breaks |
+| `replay` | `10` | recent comments to show immediately on connect (`0` = none) |
 | `mint` | — | pin to one token if the server follows several |
 
 ```
@@ -147,7 +152,7 @@ http://localhost:8787/overlay?max=5&fade=25&font=24&align=right&accent=%23ff7b72
 Two details worth knowing:
 
 - **It tells you when it is broken.** If the upstream shape changes or holder checks start failing, a small red badge appears in the corner — because an overlay that silently shows nothing is indistinguishable from a quiet chat. Pass `status=0` to suppress it.
-- **It reconnects on its own.** OBS suspends and reloads browser sources constantly; the overlay retries with backoff and picks the feed back up.
+- **It reconnects on its own, and comes back populated.** OBS suspends and reloads browser sources constantly. The overlay retries with backoff, and the server replays the last few comments on every connect — otherwise a reload leaves you staring at an empty box that reads as "chat is dead".
 
 Comment text is rendered with `textContent`, never `innerHTML` — chat is untrusted input and this is on your stream.
 
