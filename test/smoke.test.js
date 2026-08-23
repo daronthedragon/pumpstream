@@ -165,26 +165,25 @@ test('start() gives up with a clear message instead of hanging', async () => {
 
 /* ── holder gate, against a stubbed RPC ────────────────────────────────────*/
 
+const accountsFor = (bal) =>
+  bal === undefined
+    ? []
+    : [{ account: { data: { parsed: { info: { tokenAmount: { uiAmount: bal } } } } } }];
+
+// The real endpoint answers both a JSON-RPC batch and a lone request, and the
+// gate uses whichever the endpoint tolerates — so the stub must speak both.
 function stubRpc(balancesByWallet) {
   return async (_url, opts) => {
-    const batch = JSON.parse(opts.body);
+    const body = JSON.parse(opts.body);
     stubRpc.calls++;
+    const answer = (req) => ({
+      id: req.id,
+      result: { value: accountsFor(balancesByWallet[req.params[0]]) },
+    });
     return {
       ok: true,
       json: async () =>
-        batch.map((req) => {
-          const wallet = req.params[0];
-          const bal = balancesByWallet[wallet];
-          return {
-            id: req.id,
-            result: {
-              value:
-                bal === undefined
-                  ? []
-                  : [{ account: { data: { parsed: { info: { tokenAmount: { uiAmount: bal } } } } } }],
-            },
-          };
-        }),
+        Array.isArray(body) ? body.map(answer) : answer(body),
     };
   };
 }
@@ -251,11 +250,14 @@ test('a failing RPC raises a loud "degraded" alert, not a silent empty stream', 
   // Exactly how the public endpoint refuses: HTTP 200 with per-item 429s.
   globalThis.fetch = async (_u, opts) => ({
     ok: true,
-    json: async () =>
-      JSON.parse(opts.body).map((r) => ({
+    json: async () => {
+      const body = JSON.parse(opts.body);
+      const refuse = (r) => ({
         id: r.id,
         error: { code: 429, message: 'Too many requests for a specific RPC call' },
-      })),
+      });
+      return Array.isArray(body) ? body.map(refuse) : refuse(body);
+    },
   });
 
   try {
@@ -288,14 +290,15 @@ test('a high RPC error rate alerts even when some lookups succeed', async () => 
   let n = 0;
   globalThis.fetch = async (_u, opts) => ({
     ok: true,
-    json: async () =>
-      JSON.parse(opts.body).map((r) => {
-        // 1 success, then all failures — never two total-failure rounds early.
-        const succeed = n++ === 0;
-        return succeed
+    json: async () => {
+      const body = JSON.parse(opts.body);
+      // 1 success, then all failures — never two total-failure rounds early.
+      const one = (r) =>
+        n++ === 0
           ? { id: r.id, result: { value: [] } }
           : { id: r.id, error: { code: 429, message: 'Too many requests' } };
-      }),
+      return Array.isArray(body) ? body.map(one) : one(body);
+    },
   });
 
   try {
@@ -339,15 +342,14 @@ test('a rate-limited lookup is not cached as a real zero balance', async () => {
     if (call === 1) return { ok: false, status: 429 }; // rate limited
     return {
       ok: true,
-      json: async () =>
-        JSON.parse(opts.body).map((r) => ({
+      json: async () => {
+        const body = JSON.parse(opts.body);
+        const hit = (r) => ({
           id: r.id,
-          result: {
-            value: [
-              { account: { data: { parsed: { info: { tokenAmount: { uiAmount: 5000 } } } } } },
-            ],
-          },
-        })),
+          result: { value: [{ account: { data: { parsed: { info: { tokenAmount: { uiAmount: 5000 } } } } } }] },
+        });
+        return Array.isArray(body) ? body.map(hit) : hit(body);
+      },
     };
   };
 
@@ -368,19 +370,20 @@ test('a rate-limited lookup is not cached as a real zero balance', async () => {
 
 test('balances across multiple token accounts are summed', async () => {
   const original = globalThis.fetch;
-  globalThis.fetch = async () => ({
-    ok: true,
-    json: async () => [
-      {
-        id: 0,
-        result: {
-          value: [
-            { account: { data: { parsed: { info: { tokenAmount: { uiAmount: 100 } } } } } },
-            { account: { data: { parsed: { info: { tokenAmount: { uiAmount: 250 } } } } } },
-          ],
-        },
-      },
+  const split = {
+    value: [
+      { account: { data: { parsed: { info: { tokenAmount: { uiAmount: 100 } } } } } },
+      { account: { data: { parsed: { info: { tokenAmount: { uiAmount: 250 } } } } } },
     ],
+  };
+  globalThis.fetch = async (_u, opts) => ({
+    ok: true,
+    json: async () => {
+      const body = JSON.parse(opts.body);
+      return Array.isArray(body)
+        ? body.map((r) => ({ id: r.id, result: split }))
+        : { id: body.id, result: split };
+    },
   });
   try {
     const gate = new HolderGate({ mint: 'mint1' });

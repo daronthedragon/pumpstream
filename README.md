@@ -109,8 +109,8 @@ await feed.start();
 | `minBalance` | `0` | UI-amount required to count as a holder |
 | `rpcUrl` | public mainnet | **use a paid RPC for real traffic** |
 | `holderTtlMs` | `60000` | how long a balance stays fresh |
-| `history` | `0` | replay the last N comments on connect |
 | `commandPrefix` | `'!'` | prefix for `command` events; `''` disables them |
+| `history` | `0` | replay the last N comments on connect |
 
 ### Events
 
@@ -322,18 +322,23 @@ Silent failure is the real danger — a stream overlay that quietly stops is wor
 
 Opening many sockets quickly gets you throttled — measured, not guessed: 10 sequential connections produced **20 socket errors and 0 comments**, while a single connection worked immediately. One upstream connection fanned out locally is the supported pattern.
 
-Holder checks are batched into single JSON-RPC calls and cached per wallet — in testing, 300 lookups across 3 wallets collapsed into **1 RPC call**.
+Holder lookups adapt to what the endpoint will actually tolerate.
 
-**Use a paid RPC.** The public Solana endpoint rate-limits this method hard, and it is not subtle:
+Batching is the fast path, and a paid endpoint handles it happily — 300 lookups across 3 wallets collapse into **1 RPC call**. The free endpoint does not. Measured against `api.mainnet-beta.solana.com`, the *same* lookups behave completely differently depending on how they are sent:
 
 ```
-{"error":{"code":429,"message":"Too many requests for a specific RPC call"}}
+single request   ->  HTTP 200
+same as a batch  ->  HTTP 429
 ```
 
-A live 25-second run on the public endpoint produced 12 lookups, **10 of which were refused**. Failed lookups fail closed, so on a throttled RPC real holders get dropped. Two things keep that honest rather than silent:
+So the thing meant to be efficient was the thing breaking the gate. It now tries the batch, and if the endpoint refuses it wholesale, stops batching for that gate and falls back to one request at a time with a small gap between them. Against a live room:
 
-- a refused lookup is recorded as `holderUnknown: true`, never cached as a genuine zero balance, and retried within seconds
-- if *every* lookup fails twice running, the feed emits a loud `degraded` event, because "holders-only" plus a dead RPC otherwise looks exactly like "nobody is chatting"
+```
+batch only   HTTP 429   answered 0/12
+adaptive                answered 9/12   holders 5
+```
+
+That is the difference between the holder gate not working at all on the default endpoint and mostly working. It is still not as good as a real endpoint — the run above left 3 lookups unanswered — and those are reported as `holderUnknown`, never as a real zero balance. If *every* lookup keeps failing, the feed emits `degraded` rather than quietly showing an empty stream.
 
 Pass `--rpc` with a Helius/QuickNode/Triton endpoint before going live and none of this bites.
 
@@ -357,7 +362,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-73 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+80 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

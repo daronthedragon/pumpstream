@@ -30,6 +30,8 @@ export class HolderGate {
     batchWindowMs = 25,
     maxBatch = 100,
     unknownTtlMs = 5_000,
+    concurrency = 1,
+    spacingMs = 120,
   }) {
     if (!mint) throw new Error('HolderGate requires a mint');
     this.mint = mint;
@@ -42,6 +44,14 @@ export class HolderGate {
     // fast so a rate-limit blip cannot pin a real holder to non-holder for a
     // full TTL. Short, not zero, so we don't hammer an RPC that is refusing.
     this.unknownTtlMs = unknownTtlMs;
+    // Batching is tried first, then switched off permanently for this gate if
+    // the endpoint refuses it. `concurrency` caps the fallback's parallelism.
+    this.batchSupported = true;
+    // Measured against api.mainnet-beta.solana.com: single lookups return 200
+    // steadily, but four at once trips the limiter. Serial with a small gap
+    // beats a burst, and the cache means most comments never get here at all.
+    this.concurrency = Math.max(1, concurrency);
+    this.spacingMs = Math.max(0, spacingMs);
 
     this.cache = new Map(); // wallet -> { balance, at }
     this.inflight = new Map(); // wallet -> Promise
@@ -49,7 +59,11 @@ export class HolderGate {
     this.timer = null;
     // `deduped` = asked again while the first answer was still in flight.
     // Counting those as misses would make /stats badly understate efficiency.
-    this.stats = { hits: 0, deduped: 0, misses: 0, rpcCalls: 0, rpcErrors: 0, ok: 0 };
+    this.stats = {
+      hits: 0, deduped: 0, misses: 0,
+      rpcCalls: 0, singleCalls: 0, rpcErrors: 0, ok: 0,
+      batchDisabled: false,
+    };
     this.consecutiveErrors = 0;
   }
 
@@ -107,6 +121,26 @@ export class HolderGate {
     const batch = this.queue.splice(0, this.maxBatch);
     if (!batch.length) return;
 
+    // Batching is the fast path and paid endpoints handle it happily. The
+    // public one does not: measured against api.mainnet-beta.solana.com, a
+    // single lookup returns 200 while the same lookups batched return 429.
+    // So try the batch, and if the endpoint refuses it wholesale, stop
+    // batching for this gate and fall back to individual requests.
+    if (this.batchSupported && batch.length > 1) {
+      if (await this.#tryBatch(batch)) return;
+      this.batchSupported = false;
+      this.stats.batchDisabled = true;
+    }
+
+    await this.#resolveIndividually(batch);
+  }
+
+  /**
+   * @returns {Promise<boolean>} true if the batch produced usable answers and
+   * every item has been resolved; false if the endpoint refused it, in which
+   * case NOTHING is resolved and the caller retries one at a time.
+   */
+  async #tryBatch(batch) {
     const body = batch.map((item, i) => ({
       jsonrpc: '2.0',
       id: i,
@@ -114,6 +148,7 @@ export class HolderGate {
       params: [item.wallet, { mint: this.mint }, { encoding: 'jsonParsed' }],
     }));
 
+    let byId;
     try {
       this.stats.rpcCalls++;
       const res = await fetch(this.rpcUrl, {
@@ -121,41 +156,93 @@ export class HolderGate {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
+      if (!res.ok) return false; // 429/400 on the batch itself
       const out = await res.json();
-      const byId = new Map(
-        (Array.isArray(out) ? out : [out]).map((r) => [r.id, r])
-      );
+      byId = new Map((Array.isArray(out) ? out : [out]).map((r) => [r.id, r]));
+    } catch {
+      return false;
+    }
 
-      // A 200 can still carry per-item JSON-RPC errors (public endpoints
-      // return 429 this way), so inspect every entry, not just the status.
-      let failed = 0;
-      batch.forEach((item, i) => {
-        const r = byId.get(i);
-        if (!r || r.error) {
+    // A 200 can still carry per-item errors; if every one failed, treat it as
+    // the endpoint refusing batches rather than as N real failures.
+    const failed = batch.filter((_, i) => !byId.get(i) || byId.get(i).error).length;
+    if (failed === batch.length) return false;
+
+    batch.forEach((item, i) => {
+      const r = byId.get(i);
+      if (!r || r.error) {
+        this.stats.rpcErrors++;
+        return item.resolve(null);
+      }
+      this.stats.ok++;
+      item.resolve(sumBalance(r.result?.value));
+    });
+
+    this.consecutiveErrors = 0;
+    if (failed) {
+      const detail = [...byId.values()].find((r) => r.error)?.error?.message ?? 'unknown RPC error';
+      this.#report(new Error(`${failed}/${batch.length} holder lookups failed: ${detail}`));
+    }
+    return true;
+  }
+
+  /** One request per wallet, a few at a time so we do not trip the limiter. */
+  async #resolveIndividually(batch) {
+    let failed = 0;
+    let lastError = null;
+    const queue = [...batch];
+
+    const worker = async (lane) => {
+      // Stagger lanes so concurrency > 1 does not become a burst.
+      if (lane && this.spacingMs) await sleep(lane * this.spacingMs);
+      for (let item = queue.shift(); item; item = queue.shift()) {
+        try {
+          this.stats.rpcCalls++;
+          this.stats.singleCalls++;
+          const res = await fetch(this.rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getTokenAccountsByOwner',
+              params: [item.wallet, { mint: this.mint }, { encoding: 'jsonParsed' }],
+            }),
+          });
+          if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
+          const out = await res.json();
+          if (out.error) throw new Error(out.error.message ?? `RPC error ${out.error.code}`);
+
+          this.stats.ok++;
+          item.answer = sumBalance(out.result?.value);
+        } catch (err) {
           failed++;
+          lastError = err;
           this.stats.rpcErrors++;
           // null = "could not determine", which the caller renders as
           // non-holder but does not cache as a real zero balance.
-          return item.resolve(null);
+          item.answer = null;
         }
-        this.stats.ok++;
-        item.resolve(sumBalance(r.result?.value));
-      });
-
-      if (failed === batch.length) this.consecutiveErrors++;
-      else this.consecutiveErrors = 0;
-
-      if (failed) {
-        const detail = [...byId.values()].find((r) => r.error)?.error?.message ?? 'unknown RPC error';
-        this.#report(new Error(`${failed}/${batch.length} holder lookups failed: ${detail}`));
+        if (queue.length && this.spacingMs) await sleep(this.spacingMs);
       }
-    } catch (err) {
-      this.stats.rpcErrors += batch.length;
-      this.consecutiveErrors++;
-      batch.forEach((item) => item.resolve(null));
-      this.#report(err);
+    };
+
+    const lanes = Math.min(this.concurrency, batch.length);
+    await Promise.all(Array.from({ length: lanes }, (_, i) => worker(i)));
+
+    if (failed === batch.length) this.consecutiveErrors++;
+    else this.consecutiveErrors = 0;
+
+    // Report BEFORE handing back answers. A caller that is about to be told
+    // "not a holder" should already know the gate is broken, rather than
+    // learning a tick later once it has acted on the wrong answer.
+    if (failed) {
+      this.#report(
+        new Error(`${failed}/${batch.length} holder lookups failed: ${lastError?.message ?? 'unknown RPC error'}`)
+      );
     }
+
+    for (const item of batch) item.resolve(item.answer ?? null);
   }
 
   #report(err) {
@@ -175,6 +262,8 @@ export class HolderGate {
     this.onError?.(err);
   }
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** A wallet can hold the same mint across several token accounts. */
 function sumBalance(accounts) {
