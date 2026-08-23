@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws';
 import { PumpComments } from './index.js';
 
 const OVERLAY_PATH = fileURLToPath(new URL('./overlay.html', import.meta.url));
+const CONFIG_PATH = fileURLToPath(new URL('./config.html', import.meta.url));
 
 /**
  * Local fan-out server: one upstream pump.fun connection, many local
@@ -12,6 +13,8 @@ const OVERLAY_PATH = fileURLToPath(new URL('./overlay.html', import.meta.url));
  * Unity, Godot, OBS, a Python bot, a shell script.
  *
  *   WS   ws://localhost:8787            every event as JSON lines
+ *   GET  /overlay                       OBS browser source
+ *   GET  /overlay/config                live builder for overlay options
  *   GET  /health                        liveness + upstream state
  *   GET  /comments?limit=50&mint=<m>    recent buffer (polling clients)
  *   GET  /stats                         counters + holder-cache efficiency
@@ -60,6 +63,16 @@ export async function startServer({
       res.end(JSON.stringify(body, null, 2));
     };
 
+    if (url.pathname === '/overlay/config' || url.pathname === '/config') {
+      try {
+        const html = await readFile(CONFIG_PATH);
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(html);
+      } catch (err) {
+        return send(500, { error: `could not read config.html: ${err.message}` });
+      }
+    }
+
     if (url.pathname === '/overlay' || url.pathname === '/overlay.html') {
       try {
         const html = await readFile(OVERLAY_PATH);
@@ -101,7 +114,7 @@ export async function startServer({
       });
     }
 
-    return send(404, { error: 'not found', routes: ['/overlay', '/health', '/comments', '/stats'] });
+    return send(404, { error: 'not found', routes: ['/overlay', '/overlay/config', '/health', '/comments', '/stats'] });
   });
 
   const wss = new WebSocketServer({ server });

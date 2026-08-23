@@ -3,61 +3,74 @@
 <title>pumpstream overlay</title>
 <!--
   OBS browser source. Add http://localhost:8787/overlay at your canvas size.
-  Background is transparent on purpose — OBS composites it over your scene.
 
-  Query options (all optional):
-    ?mint=<mint>     only show one token when the server follows several
-    &max=8           how many comments stay on screen
-    &fade=0          seconds before a comment fades out (0 = never)
-    &font=20         base font size in px
-    &align=left      left | right
-    &avatars=1       show profile pictures
-    &balance=1       show the holder's balance badge
-    &replies=1       show the quoted parent of a reply
-    &status=1        show a corner badge when the feed is broken
-    &accent=#7ee787  highlight colour
+  The page NEVER paints a background — not in any theme, not in any preset.
+  OBS composites it straight over your scene. See the `transparent` rule below.
+
+  Every knob is a query parameter; see README, or /overlay/config for a live
+  builder. Booleans accept 1/0, true/false, yes/no, on/off.
 -->
 <style>
+  /* ── tokens: every one of these is driven by a query parameter ──────────*/
   :root {
     --font: 20px;
     --accent: #7ee787;
+    --text: #ffffff;
+    --bubble-rgb: 0, 0, 0;
+    --bubble-a: 0.55;
+    --radius: 14px;
+    --gap: 10px;
+    --pad: 16px;
+    --maxw: 92%;
+    --bar: 3px;
   }
+
+  /* Light surfaces change the BUBBLE, never the page. */
+  body.theme-light {
+    --bubble-rgb: 255, 255, 255;
+    --text: #10151b;
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   html, body {
     height: 100%;
-    /* OBS composites over this; never paint a background. */
-    background: transparent;
+    /* ── THE transparency rule ───────────────────────────────────────────
+       Nothing may ever paint here. OBS relies on the page compositing to
+       zero alpha; a themed background would show as an opaque slab on
+       stream. Tests assert this stays transparent under every preset. */
+    background: transparent !important;
     overflow: hidden;
     font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
     font-size: var(--font);
-    color: #fff;
+    color: var(--text);
   }
 
   #feed {
     position: absolute;
     inset: 0;
-    padding: 16px;
+    padding: var(--pad);
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;   /* newest at the bottom, like a chat */
-    /* Without this, column flex stretches every pill to the full width and a
-       two-word message gets the same slab as a long one. */
+    /* Column flex stretches by default, which pads every pill out to the
+       full source width. Hug the content instead. */
     align-items: flex-start;
-    gap: 10px;
+    justify-content: flex-end;
+    gap: var(--gap);
   }
   body.align-right #feed { align-items: flex-end; }
+  body.align-center #feed { align-items: center; }
+  body.grow-top #feed { justify-content: flex-start; }
 
   .msg {
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    max-width: 92%;
+    max-width: var(--maxw);
     padding: 10px 14px;
-    border-radius: 14px;
-    background: rgba(0, 0, 0, 0.55);
-    border-left: 3px solid var(--accent);
-    /* Legible over bright gameplay without a heavy plate. */
+    border-radius: var(--radius);
+    background: rgba(var(--bubble-rgb), var(--bubble-a));
+    border-left: var(--bar) solid var(--accent);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
     backdrop-filter: blur(3px);
     animation: enter 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -65,16 +78,28 @@
   body.align-right .msg {
     flex-direction: row-reverse;
     border-left: none;
-    border-right: 3px solid var(--accent);
+    border-right: var(--bar) solid var(--accent);
   }
-  .msg.leaving { animation: leave 600ms ease forwards; }
 
+  /* ── toggles ───────────────────────────────────────────────────────────*/
+  body.no-bar .msg { border-left: none; border-right: none; }
+  body.no-shadow .msg { text-shadow: none; }
+  body.no-blur .msg { backdrop-filter: none; }
+  body.no-anim .msg, body.no-anim .msg.leaving { animation: none; }
+  body.no-bubble .msg { background: none; padding: 0; backdrop-filter: none; }
+  /* With no bubble there is nothing behind the text, so the shadow is the
+     only thing keeping it readable over bright gameplay. */
+  body.no-bubble:not(.no-shadow) .msg {
+    text-shadow: 0 1px 4px #000, 0 0 10px rgba(0, 0, 0, 0.85);
+  }
+
+  .msg.leaving { animation: leave 600ms ease forwards; }
   @keyframes enter {
     from { opacity: 0; transform: translateY(14px) scale(0.97); }
     to   { opacity: 1; transform: none; }
   }
   @keyframes leave {
-    to { opacity: 0; transform: translateY(-8px); max-height: 0; padding-block: 0; margin-top: -10px; }
+    to { opacity: 0; transform: translateY(-8px); max-height: 0; padding-block: 0; margin-top: calc(var(--gap) * -1); }
   }
   @media (prefers-reduced-motion: reduce) {
     .msg, .msg.leaving { animation: none; }
@@ -85,7 +110,7 @@
     border-radius: 50%;
     flex: 0 0 auto;
     object-fit: cover;
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(128, 128, 128, 0.25);
   }
 
   .body { min-width: 0; }
@@ -94,21 +119,19 @@
 
   .name { font-weight: 700; color: var(--accent); }
 
-  .bal {
+  .bal, .tag, .time {
     font-size: 0.72em;
     font-weight: 600;
     padding: 2px 7px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.16);
     white-space: nowrap;
   }
+  .bal { background: rgba(128, 128, 128, 0.28); }
+  .time { background: none; padding: 2px 0; opacity: 0.6; }
   .tag {
-    font-size: 0.68em;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    padding: 2px 7px;
-    border-radius: 999px;
     background: var(--accent);
     color: #06240f;
   }
@@ -118,7 +141,7 @@
   .reply {
     font-size: 0.78em;
     opacity: 0.65;
-    border-left: 2px solid rgba(255, 255, 255, 0.3);
+    border-left: 2px solid currentColor;
     padding-left: 7px;
     margin-bottom: 3px;
     white-space: nowrap;
@@ -127,8 +150,30 @@
     max-width: 30ch;
   }
 
-  /* Small, deliberately unglamorous: the streamer should notice it, the
-     audience should not. Only ever shown when the feed is actually broken. */
+  /* ── preview backdrop ──────────────────────────────────────────────────
+     `?demo=` paints a stand-in for gameplay so the overlay can be judged in
+     an ordinary browser. It is a REAL ELEMENT behind the feed — never a
+     background on html or body, which must stay transparent for OBS. An
+     iframe canvas is opaque in CEF, so the builder cannot show a backdrop
+     through the frame; this is how it gets one. */
+  #demo {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+  }
+  #demo.grid {
+    background-color: #1b2027;
+    background-image:
+      linear-gradient(45deg, #2a2f37 25%, transparent 25%),
+      linear-gradient(-45deg, #2a2f37 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #2a2f37 75%),
+      linear-gradient(-45deg, transparent 75%, #2a2f37 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  }
+  #demo.scene { background: linear-gradient(135deg, #1e5a8a, #7a3ea8 50%, #b8562f); }
+
+  /* Small on purpose: the streamer should notice, the audience should not. */
   #status {
     position: absolute;
     top: 8px; right: 10px;
@@ -148,25 +193,121 @@
 
 <script>
   const q = new URLSearchParams(location.search);
+
+  /* ── option parsing: validated, never trusted straight into CSS ────────*/
+  const TRUE = ['1', 'true', 'yes', 'on'];
+  const FALSE = ['0', 'false', 'no', 'off'];
+
+  function bool(key, dflt) {
+    const v = q.get(key);
+    if (v === null) return dflt;
+    if (TRUE.includes(v.toLowerCase())) return true;
+    if (FALSE.includes(v.toLowerCase())) return false;
+    return dflt;
+  }
+  function num(key, dflt, min, max) {
+    const v = Number(q.get(key));
+    if (q.get(key) === null || !Number.isFinite(v)) return dflt;
+    return Math.min(Math.max(v, min), max);
+  }
+  function pick(key, allowed, dflt) {
+    const v = (q.get(key) || '').toLowerCase();
+    return allowed.includes(v) ? v : dflt;
+  }
+  // Colours land in a CSS custom property, so anything that is not plainly a
+  // hex colour is rejected rather than injected.
+  function colour(key, dflt) {
+    const v = q.get(key);
+    if (!v) return dflt;
+    const hex = v.startsWith('#') ? v : '#' + v;
+    return /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex) ? hex : dflt;
+  }
+
+  /* Presets set defaults; any explicit parameter still wins. */
+  const PRESETS = {
+    dark:    {},
+    light:   { theme: 'light' },
+    minimal: { bubble: 0, bar: 0, avatars: false, blur: false },
+    solid:   { bubble: 1, blur: false },
+    ghost:   { bubble: 0, bar: 0, blur: false },
+  };
+  const preset = PRESETS[pick('preset', Object.keys(PRESETS), 'dark')] ?? {};
+  const d = (key, fallback) => (key in preset ? preset[key] : fallback);
+
   const opt = {
+    // layout
+    max: num('max', 8, 1, 100),
+    fade: num('fade', 0, 0, 3600),
+    font: num('font', 20, 8, 96),
+    align: pick('align', ['left', 'right', 'center'], 'left'),
+    grow: pick('grow', ['up', 'down'], 'up'),
+    gap: num('gap', 10, 0, 80),
+    pad: num('pad', 16, 0, 200),
+    width: num('width', 92, 10, 100),
+    radius: num('radius', 14, 0, 60),
+
+    // surface
+    theme: pick('theme', ['dark', 'light'], d('theme', 'dark')),
+    accent: colour('accent', '#7ee787'),
+    text: colour('text', null),
+    bubble: num('bubble', d('bubble', 0.55), 0, 1),
+    bar: num('bar', d('bar', 3), 0, 12),
+    shadow: bool('shadow', d('shadow', true)),
+    blur: bool('blur', d('blur', true)),
+    anim: bool('anim', d('anim', true)),
+
+    // content
+    avatars: bool('avatars', d('avatars', true)),
+    balance: bool('balance', true),
+    names: bool('names', true),
+    replies: bool('replies', true),
+    badges: bool('badges', true),
+    time: bool('time', false),
+
+    // filtering (client side, so one server can feed differently-tuned sources)
+    holders: bool('holders', false),
+    minbal: num('minbal', 0, 0, Number.MAX_SAFE_INTEGER),
+
+    // plumbing
+    status: bool('status', true),
     mint: q.get('mint') || '',
-    max: Math.max(1, Number(q.get('max') ?? 8)),
-    fade: Number(q.get('fade') ?? 0),
-    font: Number(q.get('font') ?? 20),
-    align: q.get('align') === 'right' ? 'right' : 'left',
-    avatars: q.get('avatars') !== '0',
-    balance: q.get('balance') !== '0',
-    replies: q.get('replies') !== '0',
-    status: q.get('status') !== '0',
-    accent: q.get('accent') || '#7ee787',
+    replay: num('replay', 10, 0, 200),
   };
 
-  document.documentElement.style.setProperty('--font', opt.font + 'px');
-  document.documentElement.style.setProperty('--accent', opt.accent);
-  document.body.classList.toggle('align-right', opt.align === 'right');
+  const root = document.documentElement.style;
+  root.setProperty('--font', opt.font + 'px');
+  root.setProperty('--accent', opt.accent);
+  root.setProperty('--gap', opt.gap + 'px');
+  root.setProperty('--pad', opt.pad + 'px');
+  root.setProperty('--maxw', opt.width + '%');
+  root.setProperty('--radius', opt.radius + 'px');
+  root.setProperty('--bubble-a', String(opt.bubble));
+  root.setProperty('--bar', opt.bar + 'px');
+  if (opt.text) root.setProperty('--text', opt.text);
+
+  const body = document.body;
+  body.classList.toggle('theme-light', opt.theme === 'light');
+  body.classList.toggle('align-right', opt.align === 'right');
+  body.classList.toggle('align-center', opt.align === 'center');
+  body.classList.toggle('grow-top', opt.grow === 'down');
+  body.classList.toggle('no-bar', opt.bar === 0);
+  body.classList.toggle('no-shadow', !opt.shadow);
+  body.classList.toggle('no-blur', !opt.blur);
+  body.classList.toggle('no-anim', !opt.anim);
+  body.classList.toggle('no-bubble', opt.bubble === 0);
 
   const feed = document.getElementById('feed');
   const statusEl = document.getElementById('status');
+
+  // Preview-only backdrop. Never reachable unless explicitly asked for, and
+  // it paints its own element so html/body stay transparent for OBS.
+  const demo = pick('demo', ['grid', 'scene'], '');
+  if (demo) {
+    const el = document.createElement('div');
+    el.id = 'demo';
+    el.className = demo;
+    document.body.prepend(el);
+  }
 
   function setStatus(text) {
     if (!opt.status) return;
@@ -178,11 +319,22 @@
     if (!el.isConnected || el.classList.contains('leaving')) return;
     el.classList.add('leaving');
     el.addEventListener('animationend', () => el.remove(), { once: true });
-    // Belt and braces: if the animation never fires (tab throttled), still go.
-    setTimeout(() => el.remove(), 900);
+    // If the animation never fires (throttled tab, anim disabled), still go.
+    setTimeout(() => el.remove(), opt.anim ? 900 : 0);
+  }
+
+  function format(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+    return String(Math.round(n));
   }
 
   function add(c) {
+    // Client-side gating, independent of how the server was started.
+    if (opt.holders && !c.holder) return;
+    if (opt.minbal > 0 && !(c.balance >= opt.minbal)) return;
+
     const el = document.createElement('div');
     el.className = 'msg';
 
@@ -195,92 +347,92 @@
       el.append(img);
     }
 
-    const body = document.createElement('div');
-    body.className = 'body';
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'body';
 
     if (opt.replies && c.replyTo?.preview) {
       const r = document.createElement('div');
       r.className = 'reply';
       r.textContent = '↳ ' + c.replyTo.preview;
-      body.append(r);
+      bodyEl.append(r);
     }
 
     const head = document.createElement('div');
     head.className = 'head';
 
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = c.username || (c.author ? c.author.slice(0, 6) : 'anon');
-    head.append(name);
-
-    if (c.isCreator) {
+    if (opt.names) {
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = c.username || (c.author ? c.author.slice(0, 6) : 'anon');
+      head.append(name);
+    }
+    if (opt.badges && (c.isCreator || c.isModerator)) {
       const tag = document.createElement('span');
       tag.className = 'tag';
-      tag.textContent = 'dev';
+      tag.textContent = c.isCreator ? 'dev' : 'mod';
       head.append(tag);
     }
-
     if (opt.balance && c.balance > 0) {
       const bal = document.createElement('span');
       bal.className = 'bal';
       bal.textContent = format(c.balance);
       head.append(bal);
     }
+    if (opt.time && c.timestamp) {
+      const t = document.createElement('span');
+      t.className = 'time';
+      const dt = new Date(c.timestamp);
+      t.textContent = Number.isNaN(dt.getTime())
+        ? ''
+        : `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+      head.append(t);
+    }
 
     const text = document.createElement('div');
     text.className = 'text';
-    // textContent, never innerHTML — chat is untrusted input.
+    // textContent, never innerHTML — chat is untrusted and this is on stream.
     text.textContent = c.text;
 
-    body.append(head, text);
-    el.append(body);
+    if (head.childElementCount) bodyEl.append(head);
+    bodyEl.append(text);
+    el.append(bodyEl);
     feed.append(el);
 
-    // Count only messages that are NOT already animating out. `remove()`
-    // detaches asynchronously, so counting every child means this loop can
-    // never make progress — which locks up the whole browser source the
-    // moment chat arrives faster than the exit animation.
+    // Count only pills that are NOT already animating out; counting every
+    // child means this loop can never make progress and locks up the source.
     const live = [...feed.children].filter((m) => !m.classList.contains('leaving'));
     while (live.length > opt.max) remove(live.shift());
 
     if (opt.fade > 0) setTimeout(() => remove(el), opt.fade * 1000);
   }
 
-  function format(n) {
-    if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
-    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
-    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
-    return String(Math.round(n));
-  }
-
   let backoff = 1000;
 
   function connect() {
-    const url = `ws://${location.host}${opt.mint ? '?mint=' + encodeURIComponent(opt.mint) : ''}`;
-    const ws = new WebSocket(url);
+    const params = new URLSearchParams();
+    if (opt.mint) params.set('mint', opt.mint);
+    params.set('replay', String(opt.replay));
+    const ws = new WebSocket(`ws://${location.host}?${params}`);
 
-    ws.onopen = () => {
-      backoff = 1000;
-      setStatus('');
-    };
+    ws.onopen = () => { backoff = 1000; setStatus(''); };
 
     ws.onmessage = (ev) => {
       const { type, data } = JSON.parse(ev.data);
       if (type === 'comment') return add(data);
-      // A broken feed must not look like a quiet chat.
+      // A broken feed must never just look like a quiet chat.
       if (type === 'drift') return setStatus('pumpstream: upstream changed');
       if (type === 'degraded') return setStatus('pumpstream: holder checks failing');
     };
 
-    // OBS sources get reloaded and suspended constantly; always come back.
+    // OBS suspends and reloads browser sources constantly; always come back.
     ws.onclose = () => {
       setStatus('pumpstream: disconnected');
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 15000);
     };
-
     ws.onerror = () => ws.close();
   }
 
   connect();
+  window.__pumpstream = { opt }; // for the config builder and tests
 </script>

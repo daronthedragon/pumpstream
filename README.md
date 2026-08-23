@@ -107,6 +107,7 @@ npx pumpstream --discover      # list live tokens and their mints
 |---|---|
 | `ws://localhost:8787` | every event as JSON `{type, data}` |
 | `GET /overlay` | the OBS browser source |
+| `GET /overlay/config` | live builder for the overlay |
 | `GET /health` | liveness + upstream connection state |
 | `GET /comments?limit=50` | recent buffer, for polling clients |
 | `GET /stats` | counters + holder-cache efficiency |
@@ -129,27 +130,114 @@ Set the width and height to the area you want chat to occupy. The background is 
 
 *Actual OBS program output. The blue is a stand-in for gameplay — the overlay paints nothing behind itself.*
 
-Newest comments slide in at the bottom, each with the commenter's name, avatar, and holder balance. Everything is tuned by query string:
+### Build your look without hand-writing URLs
 
-| Option | Default | |
+```
+http://localhost:8787/overlay/config
+```
+
+Every option as a control, a live preview on a chequerboard so you can see exactly what is transparent, and the finished URL ready to copy into OBS.
+
+![The overlay builder](docs/builder.png)
+
+### Presets
+
+One parameter for a whole look. Anything you set explicitly still wins over the preset.
+
+| `?preset=` | |
+|---|---|
+| `dark` | default — translucent dark bubbles |
+| `light` | light bubbles, dark text |
+| `minimal` | no bubble, no bar, no avatars — text only |
+| `solid` | opaque bubbles, no blur |
+| `ghost` | text on the scene, nothing else |
+
+![The minimal preset over gameplay](docs/overlay-minimal.png)
+
+*`?preset=minimal&font=26&accent=ffd479` — no bubbles at all, held legible by the text shadow.*
+
+### Every option
+
+**Layout**
+
+| | default | |
 |---|---|---|
-| `max` | `8` | how many comments stay on screen |
-| `fade` | `0` | seconds before a comment fades out (`0` = never) |
+| `max` | `8` | comments kept on screen |
+| `fade` | `0` | seconds before a comment leaves (`0` = never) |
 | `font` | `20` | base font size in px |
-| `align` | `left` | `left` or `right` |
-| `accent` | `#7ee787` | highlight colour for names and the bar |
-| `avatars` | `1` | show profile pictures |
-| `balance` | `1` | show the holder balance badge |
-| `replies` | `1` | show the quoted parent of a reply |
+| `align` | `left` | `left`, `center`, `right` |
+| `grow` | `up` | `up` (newest at the bottom) or `down` |
+| `width` | `92` | max pill width, % of the source |
+| `gap` | `10` | space between comments, px |
+| `pad` | `16` | padding around the feed, px |
+
+**Surface**
+
+| | default | |
+|---|---|---|
+| `theme` | `dark` | `dark` or `light` |
+| `accent` | `#7ee787` | names and the side bar; hex, with or without `#` |
+| `text` | theme | text colour override |
+| `bubble` | `0.55` | bubble opacity, `0`–`1` (`0` = no bubble) |
+| `radius` | `14` | corner radius, px |
+| `bar` | `3` | accent bar width, px (`0` = none) |
+| `shadow` | `1` | text shadow |
+| `blur` | `1` | backdrop blur behind bubbles |
+| `anim` | `1` | enter/leave animation |
+
+**Content**
+
+| | default | |
+|---|---|---|
+| `avatars` | `1` | profile pictures |
+| `names` | `1` | usernames |
+| `balance` | `1` | holder balance badge |
+| `badges` | `1` | `dev` / `mod` tags |
+| `replies` | `1` | quoted parent of a reply |
+| `time` | `0` | `HH:MM` timestamp |
 | `status` | `1` | corner badge when the feed breaks |
-| `replay` | `10` | recent comments to show immediately on connect (`0` = none) |
+
+**Filtering and plumbing**
+
+| | default | |
+|---|---|---|
+| `holders` | `0` | drop non-holders in this source |
+| `minbal` | `0` | minimum balance to appear |
+| `replay` | `10` | recent comments shown immediately on connect |
 | `mint` | — | pin to one token if the server follows several |
+| `demo` | — | `grid` or `scene` backdrop, for previewing outside OBS |
+
+Booleans accept `1/0`, `true/false`, `yes/no`, `on/off`. Out-of-range numbers are clamped, unknown values fall back to the default, and a non-hex colour is rejected rather than written into the stylesheet.
+
+Because `holders` and `minbal` are applied in the overlay, one server can feed several sources with different rules — an unfiltered mod view and a whales-only on-stream view, from the same connection.
 
 ```
-http://localhost:8787/overlay?max=5&fade=25&font=24&align=right&accent=%23ff7b72
+http://localhost:8787/overlay?preset=minimal&font=26&align=right&holders=1&minbal=50000&fade=30
 ```
 
-Two details worth knowing:
+### Transparency
+
+The page never paints a background — not in any theme, not in any preset. That is enforced in the stylesheet, asserted across every preset in the test suite, and checked against real OBS output:
+
+```bash
+npm run test:transparency -- <obs-websocket-password>
+```
+
+It decodes the alpha channel of what OBS actually renders:
+
+```
+size          : 1280x720
+fully clear   : 772928 px (83.9%)
+semi          : 134954 px (14.6%)
+fully opaque  : 13718 px (1.5%)
+top 15% strip : 0 non-transparent px
+
+PASS — the overlay composites over the scene rather than covering it.
+```
+
+Verified the same way for `solid`, `light`, `minimal` and `ghost` — including the opaque-bubble preset, which is the one most likely to fill the frame by accident.
+
+Two more things worth knowing:
 
 - **It tells you when it is broken.** If the upstream shape changes or holder checks start failing, a small red badge appears in the corner — because an overlay that silently shows nothing is indistinguishable from a quiet chat. Pass `status=0` to suppress it.
 - **It reconnects on its own, and comes back populated.** OBS suspends and reloads browser sources constantly. The overlay retries with backoff, and the server replays the last few comments on every connect — otherwise a reload leaves you staring at an empty box that reads as "chat is dead".
@@ -216,15 +304,18 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-29 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, and reconnect are all verified without a browser.
+55 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 
+Two opt-in checks hit real systems and are deliberately kept out of `npm test`, since neither a busy chat room nor a running OBS is something CI should depend on:
+
 ```bash
-npm run test:live            # opt-in, hits real pump.fun traffic
+npm run test:live                          # real pump.fun traffic, end to end
+npm run test:transparency -- <ws-password> # real OBS output, alpha channel
 ```
 
-The live check runs the whole path — socket, normalize, holder gate, local server, WebSocket subscriber — and is deliberately kept out of `npm test`, since whether a room is busy is not something your CI should depend on.
+The live check runs the whole path — socket, normalize, holder gate, local server, WebSocket subscriber. The transparency check decodes what OBS actually renders and fails if the overlay ever paints over your scene.
 
 ## License
 
