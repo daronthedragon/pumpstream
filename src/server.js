@@ -44,6 +44,7 @@ export async function startServer({
     broadcast('comment', c);
   });
   feed.on('command', (c) => broadcast('command', c));
+  feed.on('holderChange', (h) => broadcast('holderChange', h));
   feed.on('presence', (p) => broadcast('presence', p));
   feed.on('viewers', (v) => broadcast('viewers', v));
   feed.on('drift', (d) => broadcast('drift', d));

@@ -113,12 +113,13 @@ await feed.start();
 | `rpcUrl` | public mainnet | **use a paid RPC for real traffic** |
 | `holderTtlMs` | `60000` | how long a per-wallet balance stays fresh |
 | `rosterTtlMs` | `120000` | how often the holder roster is refreshed |
+| `minDelta` | `0` | ignore balance moves smaller than this in `holderChange` |
 | `commandPrefix` | `'!'` | prefix for `command` events; `''` disables them |
 | `history` | `0` | replay the last N comments on connect |
 
 ### Events
 
-`comment` · `command` · `filtered` (failed the gate) · `presence` · `viewers` · `drift` · `degraded` · `reconnect` · `error` · `open` · `close`
+`comment` · `command` · `holderChange` · `filtered` (failed the gate) · `presence` · `viewers` · `drift` · `degraded` · `reconnect` · `error` · `open` · `close`
 
 `drift` fires when pump.fun's message shape changes. `degraded` fires when the holder gate itself is broken — see [Holder lookups](#holder-lookups-and-rate-limits). Handle both: they are how you find out the feed is lying to you.
 
@@ -142,6 +143,32 @@ Three things make it usable rather than a toy:
 
 Set `commandPrefix` to change `!`, or to `''` to switch commands off. See `examples/commands.js` for a weighted-vote handler.
 
+## Buy and sell alerts
+
+The gate already pulls every holder's balance to answer "is this commenter a holder". Diffing two of those snapshots shows whose bag moved — **for no extra requests**.
+
+```js
+feed.on('holderChange', (c) => {
+  // { type: 'buy' | 'sell', first, exit, owner, before, after, delta, rank, share, mint }
+  if (c.first) console.log(`new holder bought ${c.delta}`);
+  else if (c.exit) console.log(`#${c.rank} sold the lot`);
+});
+```
+
+Watching a live token for two minutes:
+
+```
+BUY       FYNWkGx9…  +1,475,015  -> 104,825,646
+SELL EXIT FdVQHUXy…  -1,229,566  -> 0
+BUY  NEW  A82k6RRp…    +659,926  ->     659,926
+```
+
+Biggest moves arrive first. `minDelta` filters dust; `rosterTtlMs` sets how often the snapshot is taken.
+
+**This is inferred, not a transaction feed.** It is the net change in a balance between two refreshes: a wallet that bought and sold the same amount in between shows up as nothing at all, and one event can be several trades. Read it as "their bag got bigger", not "they placed a buy". It also needs the roster — an endpoint that refuses `getProgramAccounts` gets no alerts, and says so via the `error` event with `scope: 'roster'`.
+
+See `examples/alerts.js`.
+
 ## Local server
 
 One upstream connection, many local subscribers.
@@ -156,7 +183,7 @@ From a clone, `npm start -- <mint>` and `npm run discover` do the same thing.
 
 | | |
 |---|---|
-| `ws://localhost:8787` | every event as JSON `{type, data}` — including `command` |
+| `ws://localhost:8787` | every event as JSON `{type, data}` — including `command` and `holderChange` |
 | `GET /overlay` | the OBS browser source |
 | `GET /overlay/config` | live builder for the overlay |
 | `GET /health` | liveness + upstream connection state |
@@ -384,7 +411,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-91 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+97 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

@@ -285,3 +285,166 @@ test('topHolders gates the feed to the largest bags', async () => {
     globalThis.fetch = original;
   }
 });
+
+/* ── balance changes between snapshots ────────────────────────────────────
+ * Two roster snapshots are enough to see whose bag grew or shrank, for no
+ * extra requests. It is inferred, not a transaction feed.
+ */
+
+/** A stub whose roster contents can be swapped between refreshes. */
+function mutableRoster(initial) {
+  let current = initial;
+  const calls = { getProgramAccounts: 0 };
+  globalThis.fetch = async (_url, opts) => {
+    const body = JSON.parse(opts.body);
+    const one = Array.isArray(body) ? body[0] : body;
+    if (one.method === 'getAccountInfo') {
+      return { ok: true, json: async () => ({
+        result: { value: { owner: T22, data: { parsed: { info: { decimals: 0 } } } } } }) };
+    }
+    if (one.method === 'getProgramAccounts') {
+      calls.getProgramAccounts++;
+      return { ok: true, json: async () => ({ result: current }) };
+    }
+    return { ok: true, json: async () => ({ id: 1, result: { value: [] } }) };
+  };
+  return { calls, set: (next) => { current = next; } };
+}
+
+async function refresh(gate, wallet) {
+  await new Promise((r) => setTimeout(r, 5)); // let the TTL lapse
+  await gate.check(base58(wallet));
+  await new Promise((r) => setTimeout(r, 25)); // background refresh lands
+}
+
+test('the first snapshot emits nothing — there is no baseline to compare', async () => {
+  const original = globalThis.fetch;
+  mutableRoster([account(pubkey(40), 100n), account(pubkey(41), 50n)]);
+  try {
+    const g = new HolderGate({ mint: MINT });
+    const seen = [];
+    g.onHolderChanges = (c) => seen.push(...c);
+    await g.check(base58(pubkey(40)));
+    assert.equal(seen.length, 0, 'startup must not report 2,000 fake buys');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('a bigger bag reads as a buy, a smaller one as a sell', async () => {
+  const original = globalThis.fetch;
+  const buyer = pubkey(42), seller = pubkey(43);
+  const roster = mutableRoster([account(buyer, 100n), account(seller, 100n)]);
+  try {
+    const g = new HolderGate({ mint: MINT, rosterTtlMs: 1 });
+    const seen = [];
+    g.onHolderChanges = (c) => seen.push(...c);
+    await g.check(base58(buyer));
+
+    roster.set([account(buyer, 250n), account(seller, 40n)]);
+    await refresh(g, buyer);
+
+    const byOwner = Object.fromEntries(seen.map((c) => [c.owner, c]));
+    assert.equal(byOwner[base58(buyer)].type, 'buy');
+    assert.equal(byOwner[base58(buyer)].delta, 150);
+    assert.equal(byOwner[base58(seller)].type, 'sell');
+    assert.equal(byOwner[base58(seller)].delta, -60);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('a wallet that appears is flagged first, one that vanishes is an exit', async () => {
+  const original = globalThis.fetch;
+  const staying = pubkey(44), arriving = pubkey(45), leaving = pubkey(46);
+  const roster = mutableRoster([account(staying, 100n), account(leaving, 80n)]);
+  try {
+    const g = new HolderGate({ mint: MINT, rosterTtlMs: 1 });
+    const seen = [];
+    g.onHolderChanges = (c) => seen.push(...c);
+    await g.check(base58(staying));
+
+    roster.set([account(staying, 100n), account(arriving, 30n)]);
+    await refresh(g, staying);
+
+    const arrived = seen.find((c) => c.owner === base58(arriving));
+    assert.equal(arrived.type, 'buy');
+    assert.equal(arrived.first, true, 'brand new holder');
+    assert.equal(arrived.before, 0);
+
+    const left = seen.find((c) => c.owner === base58(leaving));
+    assert.equal(left.type, 'sell');
+    assert.equal(left.exit, true, 'sold the lot');
+    assert.equal(left.after, 0);
+
+    assert.ok(!seen.some((c) => c.owner === base58(staying)), 'unchanged bags are silent');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('changes arrive biggest first', async () => {
+  const original = globalThis.fetch;
+  const a = pubkey(47), b = pubkey(48), c = pubkey(49);
+  const roster = mutableRoster([account(a, 100n), account(b, 100n), account(c, 100n)]);
+  try {
+    const g = new HolderGate({ mint: MINT, rosterTtlMs: 1 });
+    let seen = [];
+    g.onHolderChanges = (ch) => { seen = ch; };
+    await g.check(base58(a));
+
+    roster.set([account(a, 105n), account(b, 900n), account(c, 50n)]);
+    await refresh(g, a);
+
+    const deltas = seen.map((x) => Math.abs(x.delta));
+    assert.deepEqual(deltas, [...deltas].sort((x, y) => y - x), 'sorted by size');
+    assert.equal(seen[0].owner, base58(b), 'the 800 move leads');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('minDelta filters out dust movement', async () => {
+  const original = globalThis.fetch;
+  const dust = pubkey(50), real = pubkey(51);
+  const roster = mutableRoster([account(dust, 100n), account(real, 100n)]);
+  try {
+    const g = new HolderGate({ mint: MINT, rosterTtlMs: 1, minDelta: 10 });
+    const seen = [];
+    g.onHolderChanges = (c) => seen.push(...c);
+    await g.check(base58(dust));
+
+    roster.set([account(dust, 103n), account(real, 400n)]);
+    await refresh(g, dust);
+
+    assert.deepEqual(seen.map((c) => c.owner), [base58(real)], 'the 3-token move is ignored');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('the feed re-emits changes as holderChange events with the mint', async () => {
+  const { PumpComments } = await import('../src/index.js');
+  const original = globalThis.fetch;
+  const w = pubkey(52);
+  const roster = mutableRoster([account(w, 100n)]);
+  try {
+    const feed = new PumpComments({ mint: MINT, rosterTtlMs: 1 });
+    feed.on('error', () => {});
+    const seen = [];
+    feed.on('holderChange', (h) => seen.push(h));
+
+    const gate = feed.gates.get(MINT);
+    await gate.check(base58(w));
+    roster.set([account(w, 500n)]);
+    await refresh(gate, w);
+
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].mint, MINT, 'tagged so multi-mint consumers can route it');
+    assert.equal(seen[0].type, 'buy');
+    assert.equal(feed.stats.holderChanges, 1);
+    feed.stop();
+  } finally {
+    globalThis.fetch = original;
+  }
+});

@@ -59,6 +59,7 @@ export class HolderGate {
     spacingMs = 120,
     roster = true,
     rosterTtlMs = 120_000,
+    minDelta = 0,
   }) {
     if (!mint) throw new Error('HolderGate requires a mint');
     this.mint = mint;
@@ -90,6 +91,8 @@ export class HolderGate {
     this.tokenProgram = null;
     this.decimals = null;
     this.rosterTotal = 0;
+    // Ignore balance moves smaller than this when diffing snapshots.
+    this.minDelta = minDelta;
 
     this.cache = new Map(); // wallet -> { balance, at }
     this.inflight = new Map(); // wallet -> Promise
@@ -238,8 +241,16 @@ export class HolderGate {
         });
       });
 
+      // Two snapshots of every balance is enough to see who bought and who
+      // sold, for no extra requests. See #diffRosters for what that does and
+      // does not mean.
+      const previous = this.roster;
       this.rosterTotal = total;
       this.roster = roster;
+      if (previous) {
+        const changes = this.#diffRosters(previous, roster);
+        if (changes.length) this.onHolderChanges?.(changes);
+      }
       this.rosterAt = Date.now();
       this.stats.rosterFetches++;
       this.stats.rosterHolders = roster.size;
@@ -253,6 +264,56 @@ export class HolderGate {
       }
       this.onRosterError?.(err);
     }
+  }
+
+  /**
+   * What changed between two roster snapshots.
+   *
+   * This is INFERRED, not a transaction feed. It is the net change in a
+   * balance between two refreshes: someone who bought and sold the same
+   * amount in between shows up as nothing at all, and one entry here can be
+   * several trades. Treat it as "their bag got bigger", not "they bought".
+   */
+  #diffRosters(prev, next) {
+    const changes = [];
+
+    for (const [owner, entry] of next) {
+      const before = prev.get(owner)?.balance ?? 0;
+      const delta = entry.balance - before;
+      if (Math.abs(delta) <= this.minDelta) continue;
+      changes.push({
+        type: delta > 0 ? 'buy' : 'sell',
+        first: before === 0,
+        exit: false,
+        owner,
+        before,
+        after: entry.balance,
+        delta,
+        rank: entry.rank,
+        share: entry.share,
+      });
+    }
+
+    // Gone from the roster entirely: sold the lot.
+    for (const [owner, entry] of prev) {
+      if (next.has(owner)) continue;
+      if (entry.balance <= this.minDelta) continue;
+      changes.push({
+        type: 'sell',
+        first: false,
+        exit: true,
+        owner,
+        before: entry.balance,
+        after: 0,
+        delta: -entry.balance,
+        rank: null,
+        share: 0,
+      });
+    }
+
+    // Biggest moves first — that is the order anyone wants to look at them in.
+    changes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+    return changes;
   }
 
   async #rpc(method, params) {

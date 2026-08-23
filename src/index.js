@@ -33,6 +33,8 @@ export class PumpComments extends EventEmitter {
     minBalance = 0,
     rpcUrl,
     holderTtlMs = 60_000,
+    rosterTtlMs = 120_000,
+    minDelta = 0,
     history = 0,
     maxBackoffMs = 30_000,
     seenLimit = 5_000,
@@ -55,7 +57,7 @@ export class PumpComments extends EventEmitter {
     this.gates = new Map(
       this.mints.map((m) => [
         m,
-        new HolderGate({ mint: m, rpcUrl, minBalance, ttlMs: holderTtlMs }),
+        new HolderGate({ mint: m, rpcUrl, minBalance, ttlMs: holderTtlMs, rosterTtlMs, minDelta }),
       ])
     );
     for (const gate of this.gates.values()) {
@@ -63,6 +65,15 @@ export class PumpComments extends EventEmitter {
       // gate just falls back to per-wallet lookups. Surface it, don't alarm.
       gate.onRosterError = (err) =>
         this.#emitError(wrap('roster', err, { fallback: 'per-wallet lookups' }));
+
+      // Whose bag grew or shrank between two roster snapshots. Inferred from
+      // balances, not read from transactions — see the README.
+      gate.onHolderChanges = (changes) => {
+        for (const change of changes) {
+          this.stats.holderChanges++;
+          this.emit('holderChange', { mint: gate.mint, ...change });
+        }
+      };
 
       gate.onError = (err) => {
         this.#emitError(wrap('rpc', err));
@@ -86,7 +97,7 @@ export class PumpComments extends EventEmitter {
     this.attempt = 0;
     this.seen = new Set();
     this.reported = new Set();
-    this.stats = { comments: 0, filtered: 0, commands: 0, reconnects: 0 };
+    this.stats = { comments: 0, filtered: 0, commands: 0, holderChanges: 0, reconnects: 0 };
   }
 
   /**
