@@ -43,5 +43,13 @@
   "devDependencies": {
     "jsdom": "^29.1.1",
     "pngjs": "^7.0.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daronthedragon/pumpstream.git"
+  },
+  "bugs": {
+    "url": "https://github.com/daronthedragon/pumpstream/issues"
+  },
+  "homepage": "https://github.com/daronthedragon/pumpstream#readme"
 }
