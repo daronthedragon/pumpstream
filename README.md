@@ -1,5 +1,9 @@
 # pumpstream
 
+[![license](https://img.shields.io/github/license/daronthedragon/pumpstream?color=brightgreen)](LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
+[![dependencies](https://img.shields.io/badge/dependencies-1-brightgreen)](package.json)
+
 Live pump.fun comments as an event stream, gated to wallets that **actually hold the token**.
 
 Point it at a mint, get a clean feed of comments where every author has been balance-checked on-chain. Drop it straight into OBS as a browser source, consume it as a Node library, or subscribe from any language or engine over the local server.
