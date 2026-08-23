@@ -89,4 +89,6 @@ What a change is expected to bring:
 
 ## Code of conduct
 
-Be decent to each other. Bad-faith participation, harassment, or using the issue tracker to promote a token will be closed without discussion.
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). In short: be decent to each other.
+
+One project-specific addition — using the issue tracker to promote a token will be closed without discussion.
