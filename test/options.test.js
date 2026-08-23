@@ -349,3 +349,85 @@ test('an unknown demo value is ignored', async () => {
   assert.equal(app.doc.getElementById('demo'), null, 'only known kinds are honoured');
   app.close();
 });
+
+/* ── word filter ──────────────────────────────────────────────────────────
+ * Off by default: rewriting someone's chat must be a deliberate choice.
+ */
+
+test('chat is never altered unless censoring is asked for', async () => {
+  const app = mount();
+  await settle();
+  app.push('comment', comment({ text: 'this shit is going up' }));
+  assert.equal(app.doc.querySelector('.text').textContent, 'this shit is going up');
+  app.close();
+});
+
+test('censor=mask stars out the word but keeps the message', async () => {
+  const app = mount('?censor=mask');
+  await settle();
+  app.push('comment', comment({ text: 'this shit is going up' }));
+  assert.equal(app.doc.querySelector('.text').textContent, 'this s*** is going up');
+  app.close();
+});
+
+test('censor=1 is accepted as mask', async () => {
+  const app = mount('?censor=1');
+  await settle();
+  app.push('comment', comment({ text: 'holy shit' }));
+  assert.equal(app.doc.querySelector('.text').textContent, 'holy s***');
+  app.close();
+});
+
+test('censor=drop hides the whole comment', async () => {
+  const app = mount('?censor=drop');
+  await settle();
+  app.push('comment', comment({ text: 'this shit is going up' }));
+  app.push('comment', comment({ id: 'c2', text: 'clean message' }));
+  assert.deepEqual(
+    [...app.doc.querySelectorAll('.text')].map((t) => t.textContent),
+    ['clean message']
+  );
+  app.close();
+});
+
+test('suffixes are caught but innocent words are left alone', async () => {
+  const app = mount('?censor=mask');
+  await settle();
+  // "class" and "assist" contain a blocked stem but are not matches.
+  app.push('comment', comment({ text: 'the classic assist was a fucking masterclass' }));
+  assert.equal(
+    app.doc.querySelector('.text').textContent,
+    'the classic assist was a f****** masterclass'
+  );
+  app.close();
+});
+
+test('block= adds custom terms, and they can be dropped too', async () => {
+  const app = mount('?censor=mask&block=scam,rugpull');
+  await settle();
+  app.push('comment', comment({ text: 'this is a scam and a rugpull' }));
+  assert.equal(app.doc.querySelector('.text').textContent, 'this is a s*** and a r******');
+  app.close();
+
+  const dropped = mount('?censor=drop&block=airdrop');
+  await settle();
+  dropped.push('comment', comment({ text: 'when airdrop' }));
+  dropped.push('comment', comment({ id: 'c2', text: 'gm' }));
+  assert.deepEqual(
+    [...dropped.doc.querySelectorAll('.text')].map((t) => t.textContent),
+    ['gm']
+  );
+  dropped.close();
+});
+
+test('a custom block term containing regex characters cannot break the filter', async () => {
+  const app = mount('?censor=mask&block=' + encodeURIComponent('a(b'));
+  await settle();
+  app.push('comment', comment({ text: 'harmless message' }));
+  assert.equal(
+    app.doc.querySelector('.text').textContent,
+    'harmless message',
+    'a malformed term must not throw or swallow the message'
+  );
+  app.close();
+});

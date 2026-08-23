@@ -267,6 +267,8 @@
     // filtering (client side, so one server can feed differently-tuned sources)
     holders: bool('holders', false),
     minbal: num('minbal', 0, 0, Number.MAX_SAFE_INTEGER),
+    censor: pick('censor', ['off', 'mask', 'drop'], q.get('censor') === '1' ? 'mask' : 'off'),
+    block: (q.get('block') || '').split(',').map((w) => w.trim()).filter(Boolean),
 
     // plumbing
     status: bool('status', true),
@@ -323,6 +325,34 @@
     setTimeout(() => el.remove(), opt.anim ? 900 : 0);
   }
 
+  /* ── word filter ───────────────────────────────────────────────────────
+     Off by default: silently rewriting someone's chat should always be a
+     deliberate choice. `censor=mask` stars the word out, `censor=drop` hides
+     the whole comment, and `block=` adds your own terms.
+
+     This is a blunt word list, not moderation. It will miss things, and a
+     determined person routes around it in seconds. */
+  const PROFANITY = [
+    'fuck', 'shit', 'bitch', 'cunt', 'whore', 'slut', 'faggot', 'nigger',
+    'nigga', 'retard', 'rape', 'dick', 'cock', 'pussy', 'bastard', 'wanker',
+  ];
+
+  const words = [...PROFANITY, ...opt.block].map((w) =>
+    w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  );
+  // Trailing \w* catches the usual suffixes (fucking, shitty) without also
+  // eating innocent words that merely contain the stem.
+  const BLOCKED = words.length ? new RegExp(`\\b(${words.join('|')})\\w*\\b`, 'gi') : null;
+
+  function screen(text) {
+    if (!BLOCKED || opt.censor === 'off') return text;
+    BLOCKED.lastIndex = 0;
+    if (!BLOCKED.test(text)) return text;
+    if (opt.censor === 'drop') return null;
+    BLOCKED.lastIndex = 0;
+    return text.replace(BLOCKED, (m) => m[0] + '*'.repeat(Math.max(m.length - 1, 1)));
+  }
+
   function format(n) {
     if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
     if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
@@ -334,6 +364,9 @@
     // Client-side gating, independent of how the server was started.
     if (opt.holders && !c.holder) return;
     if (opt.minbal > 0 && !(c.balance >= opt.minbal)) return;
+
+    const screened = screen(c.text);
+    if (screened === null) return; // censor=drop
 
     const el = document.createElement('div');
     el.className = 'msg';
@@ -391,7 +424,7 @@
     const text = document.createElement('div');
     text.className = 'text';
     // textContent, never innerHTML — chat is untrusted and this is on stream.
-    text.textContent = c.text;
+    text.textContent = screened;
 
     if (head.childElementCount) bodyEl.append(head);
     bodyEl.append(text);

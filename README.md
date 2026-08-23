@@ -4,6 +4,10 @@ Live pump.fun comments as an event stream, gated to wallets that **actually hold
 
 Point it at a mint, get a clean feed of comments where every author has been balance-checked on-chain. Drop it straight into OBS as a browser source, consume it as a Node library, or subscribe from any language or engine over the local server.
 
+![Live holder-gated chat in the OBS overlay](docs/demo.gif)
+
+*Real pump.fun chat, live. Every name carries the wallet's on-chain balance; non-holders never make it to the screen.*
+
 ```bash
 npx pumpstream <mint> --holders-only
 ```
@@ -203,6 +207,8 @@ One parameter for a whole look. Anything you set explicitly still wins over the 
 |---|---|---|
 | `holders` | `0` | drop non-holders in this source |
 | `minbal` | `0` | minimum balance to appear |
+| `censor` | `off` | `mask` stars out profanity, `drop` hides the comment |
+| `block` | — | extra terms to censor, comma separated |
 | `replay` | `10` | recent comments shown immediately on connect |
 | `mint` | — | pin to one token if the server follows several |
 | `demo` | — | `grid` or `scene` backdrop, for previewing outside OBS |
@@ -290,7 +296,11 @@ Pass `--rpc` with a Helius/QuickNode/Triton endpoint before going live and none 
 
 ### Moderation
 
-The gate filters by stake, not by content. A determined holder can still say anything, and **you are broadcasting it**. If comments go on screen, add a content filter and a manual kill switch. Consider `minBalance` high enough that abuse has a cost.
+The gate filters by stake, not by content. A determined holder can still say anything, and **you are broadcasting it**.
+
+The overlay ships a blunt word filter — `censor=mask` stars terms out, `censor=drop` hides the comment, `block=` adds your own. It is off by default, because silently rewriting someone's chat should be a deliberate choice. Treat it as a rough edge-remover, not moderation: it misses plenty and anyone determined routes around it in seconds. The demo at the top of this page runs with `censor=drop`, and roughly one in twelve comments in that room tripped it.
+
+Keep a manual kill switch on the source, and consider `minBalance` high enough that abuse has a cost.
 
 `comment.text` is untrusted input — never inject it as HTML.
 
@@ -304,7 +314,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-55 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+62 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 
