@@ -108,7 +108,8 @@ await feed.start();
 | `holdersOnly` | `false` | drop non-holders instead of just labelling them |
 | `minBalance` | `0` | UI-amount required to count as a holder |
 | `rpcUrl` | public mainnet | **use a paid RPC for real traffic** |
-| `holderTtlMs` | `60000` | how long a balance stays fresh |
+| `holderTtlMs` | `60000` | how long a per-wallet balance stays fresh |
+| `rosterTtlMs` | `120000` | how often the holder roster is refreshed |
 | `commandPrefix` | `'!'` | prefix for `command` events; `''` disables them |
 | `history` | `0` | replay the last N comments on connect |
 
@@ -116,7 +117,7 @@ await feed.start();
 
 `comment` · `command` · `filtered` (failed the gate) · `presence` · `viewers` · `drift` · `degraded` · `reconnect` · `error` · `open` · `close`
 
-`drift` fires when pump.fun's message shape changes. `degraded` fires when the holder gate itself is broken — see [Rate limits](#rate-limits). Handle both: they are how you find out the feed is lying to you.
+`drift` fires when pump.fun's message shape changes. `degraded` fires when the holder gate itself is broken — see [Holder lookups](#holder-lookups-and-rate-limits). Handle both: they are how you find out the feed is lying to you.
 
 ## Commands: driving a game from chat
 
@@ -161,7 +162,7 @@ From a clone, `npm start -- <mint>` and `npm run discover` do the same thing.
 
 Filter a socket to one mint with `ws://localhost:8787?mint=<mint>`. CORS is open, so a browser page or game client can read it directly. See `examples/consume.html`.
 
-Because it fans out locally, **run one server per mint, not one connection per viewer** — see [Rate limits](#rate-limits).
+Because it fans out locally, **run one server per mint, not one connection per viewer** — see [Holder lookups](#holder-lookups-and-rate-limits).
 
 ## OBS overlay
 
@@ -318,29 +319,33 @@ Silent failure is the real danger — a stream overlay that quietly stops is wor
 
 `drift` earned its place during development: it caught two real unmapped fields on live traffic (`expiresAt`, threaded replies via `replyToId`/`replyPreview`, and emoji reactions via `reactionRecent*`) — all now mapped. Each was found by the detector rather than by noticing something looked wrong.
 
-### Rate limits
+### Holder lookups and rate limits
 
 Opening many sockets quickly gets you throttled — measured, not guessed: 10 sequential connections produced **20 socket errors and 0 comments**, while a single connection worked immediately. One upstream connection fanned out locally is the supported pattern.
 
-Holder lookups adapt to what the endpoint will actually tolerate.
+Holder lookups are answered from a **roster**: one `getProgramAccounts` call returns every token account for the mint, and every check after that is a map lookup that costs nothing and cannot be rate-limited. Measured on a live pump.fun token:
 
-Batching is the fast path, and a paid endpoint handles it happily — 300 lookups across 3 wallets collapse into **1 RPC call**. The free endpoint does not. Measured against `api.mainnet-beta.solana.com`, the *same* lookups behave completely differently depending on how they are sent:
+```
+first lookup (builds roster)  463ms   2,347 holders
+3 more lookups                  1ms
+500 lookups                     0ms
+                             rpcCalls 2   rpcErrors 0
+```
+
+A wallet missing from the roster is a **definitive zero**, not a guess — which is a stronger answer than the per-wallet path can give. The roster refreshes every two minutes by default (`rosterTtlMs`) and serves the existing copy while it does, so no comment ever waits on the network.
+
+Some endpoints refuse `getProgramAccounts` because it is expensive to serve. That is not a failure — the gate falls back to per-wallet `getTokenAccountsByOwner`, and that path adapts too. Batching is the fast path, but measured against `api.mainnet-beta.solana.com` the *same* lookups behave completely differently depending on how they are sent:
 
 ```
 single request   ->  HTTP 200
 same as a batch  ->  HTTP 429
 ```
 
-So the thing meant to be efficient was the thing breaking the gate. It now tries the batch, and if the endpoint refuses it wholesale, stops batching for that gate and falls back to one request at a time with a small gap between them. Against a live room:
+So it tries the batch, and if the endpoint refuses it wholesale, stops batching for that gate and goes one at a time with a small gap. On a live room that took the per-wallet path from `0/12` answered to `9/12`.
 
-```
-batch only   HTTP 429   answered 0/12
-adaptive                answered 9/12   holders 5
-```
+Failures on either path are reported as `holderUnknown`, never as a real zero balance, and if lookups keep failing the feed emits `degraded` rather than quietly showing an empty stream.
 
-That is the difference between the holder gate not working at all on the default endpoint and mostly working. It is still not as good as a real endpoint — the run above left 3 lookups unanswered — and those are reported as `holderUnknown`, never as a real zero balance. If *every* lookup keeps failing, the feed emits `degraded` rather than quietly showing an empty stream.
-
-Pass `--rpc` with a Helius/QuickNode/Triton endpoint before going live and none of this bites.
+A paid RPC (Helius, QuickNode, Triton) is still worth it for a large token or a busy stream — but the default endpoint now works.
 
 ### Moderation
 
@@ -362,7 +367,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-80 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+88 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

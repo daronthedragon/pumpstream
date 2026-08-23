@@ -43,7 +43,8 @@ const accountsFor = (bal) =>
     : [{ account: { data: { parsed: { info: { tokenAmount: { uiAmount: bal } } } } } }];
 
 function gate(opts = {}) {
-  const g = new HolderGate({ mint: 'mint1', spacingMs: 0, ...opts });
+  // roster:false — these tests are specifically about the per-wallet path.
+  const g = new HolderGate({ mint: 'mint1', spacingMs: 0, roster: false, ...opts });
   g.onError = () => {};
   return g;
 }
@@ -147,7 +148,7 @@ test('spacing is applied between fallback requests', async () => {
   const original = globalThis.fetch;
   stub({ batchStatus: 429, balances: { A: 1, B: 1, C: 1 } });
   try {
-    const g = new HolderGate({ mint: 'mint1', spacingMs: 40 });
+    const g = new HolderGate({ mint: 'mint1', spacingMs: 40, roster: false });
     g.onError = () => {};
     const t0 = Date.now();
     await Promise.all([g.check('A'), g.check('B'), g.check('C')]);

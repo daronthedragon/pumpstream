@@ -55,6 +55,11 @@ export class PumpComments extends EventEmitter {
       ])
     );
     for (const gate of this.gates.values()) {
+      // A refused roster is expected on some endpoints, not a failure — the
+      // gate just falls back to per-wallet lookups. Surface it, don't alarm.
+      gate.onRosterError = (err) =>
+        this.#emitError(wrap('roster', err, { fallback: 'per-wallet lookups' }));
+
       gate.onError = (err) => {
         this.#emitError(wrap('rpc', err));
         // A dead RPC + holdersOnly = an empty stream that looks like "nobody

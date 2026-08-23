@@ -193,7 +193,7 @@ test('holder gate identifies holders and non-holders', async () => {
   stubRpc.calls = 0;
   globalThis.fetch = stubRpc({ WALLET_HOLDER: 4200 });
   try {
-    const gate = new HolderGate({ mint: 'mint1' });
+    const gate = new HolderGate({ mint: 'mint1', roster: false });
     assert.deepEqual(await gate.check('WALLET_HOLDER'), { holder: true, balance: 4200 });
     assert.deepEqual(await gate.check('WALLET_EMPTY'), { holder: false, balance: 0 });
   } finally {
@@ -205,7 +205,7 @@ test('minBalance threshold excludes dust holders', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = stubRpc({ DUST: 5 });
   try {
-    const gate = new HolderGate({ mint: 'mint1', minBalance: 1000 });
+    const gate = new HolderGate({ mint: 'mint1', minBalance: 1000, roster: false });
     const r = await gate.check('DUST');
     assert.equal(r.balance, 5);
     assert.equal(r.holder, false, '5 tokens must not pass a 1000 threshold');
@@ -219,7 +219,7 @@ test('cache and batching keep RPC calls far below lookup count', async () => {
   stubRpc.calls = 0;
   globalThis.fetch = stubRpc({ A: 10, B: 20, C: 30 });
   try {
-    const gate = new HolderGate({ mint: 'mint1' });
+    const gate = new HolderGate({ mint: 'mint1', roster: false });
     // 3 distinct wallets asked 100 times each.
     const lookups = [];
     for (let i = 0; i < 100; i++) lookups.push(gate.check('A'), gate.check('B'), gate.check('C'));
@@ -322,7 +322,7 @@ test('gate fails closed when RPC errors, and marks the answer unknown', async ()
   const original = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: false, status: 429 });
   try {
-    const gate = new HolderGate({ mint: 'mint1' });
+    const gate = new HolderGate({ mint: 'mint1', roster: false });
     const r = await gate.check('ANY');
     assert.equal(r.holder, false, 'an RPC failure must never be read as "is a holder"');
     assert.equal(r.unknown, true, 'a failure is "unknown", not a real zero balance');
@@ -354,7 +354,7 @@ test('a rate-limited lookup is not cached as a real zero balance', async () => {
   };
 
   try {
-    const gate = new HolderGate({ mint: 'mint1', unknownTtlMs: 0 });
+    const gate = new HolderGate({ mint: 'mint1', unknownTtlMs: 0, roster: false });
     const first = await gate.check('REAL_HOLDER');
     assert.deepEqual(first, { holder: false, balance: 0, unknown: true });
 
@@ -386,7 +386,7 @@ test('balances across multiple token accounts are summed', async () => {
     },
   });
   try {
-    const gate = new HolderGate({ mint: 'mint1' });
+    const gate = new HolderGate({ mint: 'mint1', roster: false });
     assert.equal((await gate.check('SPLIT')).balance, 350);
   } finally {
     globalThis.fetch = original;
