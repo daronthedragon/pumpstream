@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/daronthedragon/pumpstream/blob/main/CONTRIBUTING.md
+    about: The codebase map, the invariants, and what a change is expected to bring.
+  - name: pump.fun has no public API
+    url: https://github.com/daronthedragon/pumpstream#pumpfun-has-no-public-api
+    about: Read this before filing anything about the feed breaking — it is expected.
+  - name: Holder lookups failing or everyone showing as a non-holder
+    url: https://github.com/daronthedragon/pumpstream#rate-limits
+    about: Almost always the public Solana RPC rate-limiting you. Use a paid endpoint.

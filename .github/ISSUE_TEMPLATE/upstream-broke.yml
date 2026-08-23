@@ -1,0 +1,68 @@
+name: pump.fun changed something
+description: The feed stopped working, went quiet, or reported drift
+title: "[upstream] "
+labels: ["upstream"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        pump.fun has no public API and changes without notice, so this is
+        expected rather than surprising. **The raw payload is worth more than
+        any description of it** — please paste it below.
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What happened
+      options:
+        - It printed UPSTREAM DRIFT
+        - It printed DEGRADED
+        - No comments arrive at all
+        - Comments arrive but a field is wrong or missing
+        - Every commenter shows as a non-holder
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: payload
+    attributes:
+      label: The payload
+      description: |
+        The single most useful thing in this report. Run with a drift listener
+        and paste what it prints:
+
+        ```js
+        feed.on('drift', (d) => console.error(JSON.stringify(d, null, 2)));
+        feed.on('comment', (c) => console.error(JSON.stringify(c.raw, null, 2)));
+        ```
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: livetest
+    attributes:
+      label: Output of `npm run test:live`
+      description: It exercises the whole path and reports drift on its own.
+      render: shell
+
+  - type: input
+    id: mint
+    attributes:
+      label: Mint
+      description: Which token were you following? Helps reproduce it.
+
+  - type: checkboxes
+    id: rpc
+    attributes:
+      label: Before filing
+      options:
+        - label: I was using a paid Solana RPC, or I understand the public one rate-limits holder lookups
+        - label: I checked that `src/adapter.js` is where the fix would go
+
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: "0.1.0, or a commit sha"

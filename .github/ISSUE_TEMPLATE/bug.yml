@@ -1,0 +1,67 @@
+name: Bug report
+description: Something behaves incorrectly, and it is not upstream drift
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the feed went quiet or reported drift, use **pump.fun changed
+        something** instead — that is a different shape of problem.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - Library (PumpComments)
+        - Holder gate (balances, RPC)
+        - Local server (WebSocket / HTTP routes)
+        - OBS overlay
+        - Overlay builder (/overlay/config)
+        - CLI
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The exact command or code. For overlay problems, the full URL including its query string.
+      placeholder: |
+        npm start -- <mint> --holders-only
+        http://localhost:8787/overlay?preset=minimal&max=6
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Anything printed to the terminal, or the browser console for overlay issues.
+      render: shell
+
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Node version, OS, and OBS version if the overlay is involved.
+      placeholder: "node 22.17, Windows 11, OBS 31.1.1"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: tests
+    attributes:
+      label: Before filing
+      options:
+        - label: "`npm test` passes on my checkout"
+        - label: I can reproduce this more than once

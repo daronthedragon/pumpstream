@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest something the project should do
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the situation, not the solution. What are you building, and where does this get in the way?
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you want it to do?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part would it touch
+      options:
+        - Library (PumpComments)
+        - Holder gate
+        - Local server
+        - OBS overlay
+        - Overlay builder
+        - CLI
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints this project holds to
+      description: |
+        Not a gate on your idea — just so we start from the same place. See
+        [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md).
+      options:
+        - label: It would not need a new runtime dependency (one is a feature here)
+        - label: It would not need the overlay to paint a background
+        - label: It would not weaken the holder gate's fail-closed behaviour
