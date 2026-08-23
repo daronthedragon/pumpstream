@@ -36,6 +36,7 @@ export class PumpComments extends EventEmitter {
     history = 0,
     maxBackoffMs = 30_000,
     seenLimit = 5_000,
+    commandPrefix = '!',
   } = {}) {
     super();
     this.mints = (mint ? [mint] : mints).filter(Boolean);
@@ -43,6 +44,7 @@ export class PumpComments extends EventEmitter {
 
     this.holdersOnly = holdersOnly;
     this.history = history;
+    this.commandPrefix = commandPrefix;
     this.maxBackoffMs = maxBackoffMs;
     this.seenLimit = seenLimit;
 
@@ -75,7 +77,7 @@ export class PumpComments extends EventEmitter {
     this.attempt = 0;
     this.seen = new Set();
     this.reported = new Set();
-    this.stats = { comments: 0, filtered: 0, reconnects: 0 };
+    this.stats = { comments: 0, filtered: 0, commands: 0, reconnects: 0 };
   }
 
   /**
@@ -114,6 +116,20 @@ export class PumpComments extends EventEmitter {
     this.ws?.close();
     this.ws = null;
     this.connected = false;
+  }
+
+  /**
+   * Feed a raw upstream message straight in, bypassing the socket.
+   *
+   * Same path a live message takes: normalise, dedupe, gate, emit. Useful for
+   * replaying captured traffic against a change, and it is how the tests
+   * exercise the pipeline without a network.
+   *
+   * @param {object} raw upstream message, as pump.fun sends it
+   * @param {{historical?: boolean}} [opts] historical messages never fire commands
+   */
+  ingest(raw, { historical = false } = {}) {
+    return this.#handleMessage(raw, historical);
   }
 
   holderStats() {
@@ -247,6 +263,46 @@ export class PumpComments extends EventEmitter {
 
     this.stats.comments++;
     this.emit('comment', comment);
+
+    const command = this.#parseCommand(comment);
+    if (command) {
+      this.stats.commands++;
+      this.emit('command', command);
+    }
+  }
+
+  /**
+   * `!vote blue` -> { name: 'vote', args: ['blue'] }
+   *
+   * The point of this is driving something outside the chat — a game, a scene
+   * change, a sound. Deliberately NOT fired for replayed history: a
+   * reconnecting overlay would otherwise re-trigger every command in the
+   * buffer, and OBS reloads browser sources constantly.
+   */
+  #parseCommand(comment) {
+    if (!this.commandPrefix || comment.historical) return null;
+
+    const text = comment.text.trim();
+    if (!text.startsWith(this.commandPrefix)) return null;
+
+    const rest = text.slice(this.commandPrefix.length);
+    const match = rest.match(/^([a-z0-9_-]{1,32})(?:\s+([\s\S]*))?$/i);
+    if (!match) return null;
+
+    const argText = (match[2] ?? '').trim();
+    return {
+      name: match[1].toLowerCase(),
+      args: argText ? argText.split(/\s+/) : [],
+      text: argText,
+      mint: comment.mint,
+      author: comment.author,
+      username: comment.username,
+      // Carried through so a game can weight a command by stake.
+      holder: comment.holder,
+      balance: comment.balance,
+      isCreator: comment.isCreator,
+      comment,
+    };
   }
 
   /**

@@ -110,12 +110,33 @@ await feed.start();
 | `rpcUrl` | public mainnet | **use a paid RPC for real traffic** |
 | `holderTtlMs` | `60000` | how long a balance stays fresh |
 | `history` | `0` | replay the last N comments on connect |
+| `commandPrefix` | `'!'` | prefix for `command` events; `''` disables them |
 
 ### Events
 
-`comment` · `filtered` (failed the gate) · `presence` · `viewers` · `drift` · `degraded` · `reconnect` · `error` · `open` · `close`
+`comment` · `command` · `filtered` (failed the gate) · `presence` · `viewers` · `drift` · `degraded` · `reconnect` · `error` · `open` · `close`
 
 `drift` fires when pump.fun's message shape changes. `degraded` fires when the holder gate itself is broken — see [Rate limits](#rate-limits). Handle both: they are how you find out the feed is lying to you.
+
+## Commands: driving a game from chat
+
+A holder typing `!vote blue` emits a `command` alongside the comment. This is the primitive for wiring chat into something that isn't chat — a game, a scene switch, a sound.
+
+```js
+feed.on('command', (cmd) => {
+  // { name: 'vote', args: ['blue'], text: 'blue',
+  //   author, username, balance, holder, isCreator, comment }
+  if (cmd.name === 'vote') castVote(cmd.args[0], cmd.balance);
+});
+```
+
+Three things make it usable rather than a toy:
+
+- **Commands inherit the holder gate.** With `holdersOnly`, a non-holder's `!command` never reaches your handler.
+- **`balance` rides along**, so a game can weight an action by stake instead of treating every wallet equally.
+- **Replayed history never re-fires commands.** OBS reloads browser sources constantly; without that rule every reconnect would re-run the whole buffer.
+
+Set `commandPrefix` to change `!`, or to `''` to switch commands off. See `examples/commands.js` for a weighted-vote handler.
 
 ## Local server
 
@@ -123,14 +144,15 @@ One upstream connection, many local subscribers.
 
 ```bash
 npx github:daronthedragon/pumpstream <mint> --holders-only --min-balance 1000
-npx github:daronthedragon/pumpstream --discover   # live tokens and their mints
+npx github:daronthedragon/pumpstream <mintA> <mintB>   # follow several at once
+npx github:daronthedragon/pumpstream --discover        # live tokens and their mints
 ```
 
 From a clone, `npm start -- <mint>` and `npm run discover` do the same thing.
 
 | | |
 |---|---|
-| `ws://localhost:8787` | every event as JSON `{type, data}` |
+| `ws://localhost:8787` | every event as JSON `{type, data}` — including `command` |
 | `GET /overlay` | the OBS browser source |
 | `GET /overlay/config` | live builder for the overlay |
 | `GET /health` | liveness + upstream connection state |
@@ -335,7 +357,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-62 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+73 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

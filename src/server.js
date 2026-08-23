@@ -43,6 +43,7 @@ export async function startServer({
     if (buffer.length > bufferSize) buffer.shift();
     broadcast('comment', c);
   });
+  feed.on('command', (c) => broadcast('command', c));
   feed.on('presence', (p) => broadcast('presence', p));
   feed.on('viewers', (v) => broadcast('viewers', v));
   feed.on('drift', (d) => broadcast('drift', d));
