@@ -13,7 +13,9 @@ Point it at a mint, get a clean feed of comments where every author has been bal
 *Real pump.fun chat, live. Every name carries the wallet's on-chain balance; non-holders never make it to the screen.*
 
 ```bash
-npx pumpstream <mint> --holders-only
+git clone https://github.com/daronthedragon/pumpstream
+cd pumpstream && npm install
+npm start -- <mint> --holders-only
 ```
 
 ```
@@ -33,13 +35,19 @@ It is a spam filter, **not a safety layer** — see [Moderation](#moderation).
 
 ## Install
 
+Not on npm yet — clone it:
+
 ```bash
-npm install pumpstream
+git clone https://github.com/daronthedragon/pumpstream
+cd pumpstream
+npm install
 ```
 
 Node 18+. One dependency (`ws`).
 
 ## Library
+
+From a clone, import it by path (`./src/index.js`); the bare specifier below is what it will be once published.
 
 ```js
 import { PumpComments } from 'pumpstream';
@@ -107,8 +115,8 @@ await feed.start();
 One upstream connection, many local subscribers.
 
 ```bash
-npx pumpstream <mint> --holders-only --min-balance 1000 --port 8787
-npx pumpstream --discover      # list live tokens and their mints
+npm start -- <mint> --holders-only --min-balance 1000 --port 8787
+npm run discover               # list live tokens and their mints
 ```
 
 | | |
