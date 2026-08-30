@@ -74,12 +74,14 @@
 <main>
   <div class="bar">
     <input id="url" readonly />
-    <button id="copy">Copy</button>
+    <button id="copy">Copy URL</button>
+    <button id="copycfg" style="background:#30363d">Copy config</button>
     <button id="bg" style="background:#30363d">Backdrop</button>
   </div>
   <div class="stage"><div class="frame" id="frame"><iframe id="preview"></iframe></div></div>
   <div class="hint">
-    The backdrop stands in for your scene — everything you can see through is
+    Green labels are already set by your config file. <b>Copy config</b> gives
+    you an <code>overlay</code> block to paste into it. The backdrop stands in for your scene — everything you can see through is
     transparent in OBS. <b>Backdrop</b> switches chequerboard / gameplay. It is
     preview only and is never part of the copied URL.
   </div>
@@ -133,8 +135,14 @@
     ]],
   ];
 
+  // What the server already applies (the `overlay` block of the config file).
+  // Seeding from it means the controls show what is really in effect, rather
+  // than claiming the built-in default while the server overrides it.
+  const SERVER = window.__pumpstreamDefaults ?? {};
+
   const state = {};
   const defaults = {};
+  const fromServer = new Set();
   const controls = document.getElementById('controls');
 
   for (const [group, fields] of FIELDS) {
@@ -144,12 +152,20 @@
     fs.append(lg);
 
     for (const [key, kind, dflt, a, b, step] of fields) {
+      const seeded = key in SERVER;
+      if (seeded) fromServer.add(key);
+      // The built-in default stays the baseline for "is this worth putting in
+      // the URL", but the control starts where the server actually has it.
       defaults[key] = dflt;
-      state[key] = dflt;
+      state[key] = seeded ? SERVER[key] : dflt;
 
       const label = document.createElement('label');
       const name = document.createElement('span');
       name.textContent = key;
+      if (seeded) {
+        name.title = 'set by the server config';
+        name.style.color = '#7ee787';
+      }
       label.append(name);
 
       let input;
@@ -161,33 +177,33 @@
           opt.textContent = o;
           input.append(opt);
         }
-        input.value = dflt;
+        input.value = state[key];
       } else if (kind === 'check') {
         input = document.createElement('input');
         input.type = 'checkbox';
-        input.checked = dflt;
+        input.checked = Boolean(state[key]);
       } else if (kind === 'range') {
         input = document.createElement('input');
         input.type = 'range';
-        input.min = a; input.max = b; input.step = step ?? 1; input.value = dflt;
+        input.min = a; input.max = b; input.step = step ?? 1; input.value = state[key];
       } else if (kind === 'color') {
         input = document.createElement('input');
         input.type = 'color';
-        input.value = dflt;
+        input.value = String(state[key]).startsWith('#') ? state[key] : '#' + state[key];
       } else if (kind === 'number') {
         input = document.createElement('input');
         input.type = 'number';
         input.min = 0;
-        input.value = dflt;
+        input.value = state[key];
       } else {
         input = document.createElement('input');
         input.type = 'text';
-        input.value = dflt;
+        input.value = state[key];
       }
 
       const readout = document.createElement('span');
       readout.className = 'val';
-      if (kind === 'range') readout.textContent = dflt;
+      if (kind === 'range') readout.textContent = state[key];
 
       input.addEventListener('input', () => {
         state[key] = kind === 'check' ? input.checked : input.value;
@@ -244,6 +260,31 @@
       btn.textContent = 'Select + copy';
     }
     setTimeout(() => (btn.textContent = 'Copy'), 1400);
+  });
+
+  // The other half of configuring this: paste it into pumpstream.config.json
+  // and every browser source gets the look without a query string.
+  document.getElementById('copycfg').addEventListener('click', async () => {
+    const btn = document.getElementById('copycfg');
+    const overlay = {};
+    for (const [key, value] of Object.entries(state)) {
+      if (String(value) === String(defaults[key])) continue;
+      if (value === '' || value === null) continue;
+      // Keep real JSON types — the server hands these to the overlay as-is.
+      const n = Number(value);
+      overlay[key] = typeof value === 'boolean' ? value
+        : value !== '' && Number.isFinite(n) && String(n) === String(value) ? n
+        : value;
+    }
+    const text = JSON.stringify({ overlay }, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = 'Copied';
+    } catch {
+      urlEl.value = text;
+      btn.textContent = 'In the box';
+    }
+    setTimeout(() => (btn.textContent = 'Copy config'), 1600);
   });
 
   document.getElementById('bg').addEventListener('click', () => {

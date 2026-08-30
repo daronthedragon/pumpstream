@@ -223,7 +223,23 @@ $ npm start -- --holdrs-only
 unknown option: --holdrs-only
 ```
 
-A copyable starting point is in `pumpstream.config.example.json`.
+A copyable starting point is in `pumpstream.config.example.json`, and `GET /health` reports the overlay defaults the server is actually applying.
+
+### Tune it visually, then keep it
+
+The builder at `/overlay/config` reads the server's config: controls start where the server actually has them, and anything set that way is **labelled in green** so you can tell your config from the built-in defaults. **Copy config** hands back an `overlay` block to paste straight into `pumpstream.config.json` — with real JSON types, not strings:
+
+```json
+{
+  "overlay": {
+    "preset": "minimal",
+    "font": 26,
+    "alerts": true
+  }
+}
+```
+
+So the loop closes: tune it with sliders, paste it into the file, and every browser source picks it up with no query string at all.
 
 ## Local server
 
@@ -470,7 +486,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-129 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+137 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

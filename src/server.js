@@ -69,7 +69,12 @@ export async function startServer({
 
     if (url.pathname === '/overlay/config' || url.pathname === '/config') {
       try {
-        const html = await readFile(CONFIG_PATH);
+        let html = await readFile(CONFIG_PATH, 'utf8');
+        html = html.replace(
+          '<aside>',
+          `<script>window.__pumpstreamDefaults=${JSON.stringify(overlayDefaults)}</script>
+<aside>`
+        );
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(html);
       } catch (err) {
@@ -108,6 +113,8 @@ export async function startServer({
         mints: feed.mints,
         holdersOnly: feed.holdersOnly,
         subscribers: clients.size,
+        // What the overlay renders with before any query string.
+        overlayDefaults,
       });
     }
 
