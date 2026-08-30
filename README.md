@@ -177,6 +177,54 @@ Put them on stream with `?alerts=1` on the overlay:
 
 See `examples/alerts.js`.
 
+## Configuration
+
+Everything is settable four ways, lowest priority first: **defaults**, a **config file**, the **environment**, then **command-line flags**.
+
+```jsonc
+// pumpstream.config.json — picked up automatically
+{
+  "mints": ["DDVUsN8s…pump"],
+  "holdersOnly": true,
+  "minBalance": 1000,
+  "minDelta": 5000,
+  "overlay": { "preset": "minimal", "font": 24, "alerts": true, "censor": "drop" }
+}
+```
+
+```bash
+npm start                                  # reads the file
+PUMPSTREAM_PORT=9100 npm start             # env beats the file
+npm start -- --port 9200 --no-roster       # a flag beats env
+npm start -- --config ./stream-b.json      # a different file
+```
+
+The `overlay` block sets the browser source's defaults, so a look is configured **once** instead of in every query string — and a query parameter still wins, so a second browser source can differ from the first.
+
+`--print-config` resolves everything and shows where each value came from:
+
+```
+  mints          DDVUsN8s…pump   file:pumpstream.config.json
+  holdersOnly    true            file:pumpstream.config.json
+  minBalance     5000            env:PUMPSTREAM_MIN_BALANCE
+  topHolders     10              flag:--top
+  port           8787
+```
+
+Booleans take `--no-<flag>` (`--no-roster`). Every option has an env var — `PUMPSTREAM_` plus the name, e.g. `PUMPSTREAM_HOLDERS_ONLY`, `PUMPSTREAM_ROSTER_TTL_MS`, `PUMPSTREAM_OVERLAY` (as JSON).
+
+Bad input is refused rather than ignored:
+
+```
+$ npm start -- --port banana
+port (flag): expected a number, got "banana"
+
+$ npm start -- --holdrs-only
+unknown option: --holdrs-only
+```
+
+A copyable starting point is in `pumpstream.config.example.json`.
+
 ## Local server
 
 One upstream connection, many local subscribers.
@@ -422,7 +470,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-108 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+129 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

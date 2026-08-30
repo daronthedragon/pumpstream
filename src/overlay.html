@@ -229,31 +229,42 @@
 <script>
   const q = new URLSearchParams(location.search);
 
+  // The server can supply defaults (see `overlay` in the config file). A query
+  // parameter always wins, so one server can feed differently-tuned sources.
+  const SERVER = window.__pumpstreamDefaults ?? {};
+  const given = (key) => (q.has(key) ? q.get(key) : SERVER[key] ?? null);
+
   /* ── option parsing: validated, never trusted straight into CSS ────────*/
   const TRUE = ['1', 'true', 'yes', 'on'];
   const FALSE = ['0', 'false', 'no', 'off'];
 
   function bool(key, dflt) {
-    const v = q.get(key);
-    if (v === null) return dflt;
-    if (TRUE.includes(v.toLowerCase())) return true;
-    if (FALSE.includes(v.toLowerCase())) return false;
+    const v = given(key);
+    if (v === null || v === undefined) return dflt;
+    // A query string is always text, but server defaults come from JSON and
+    // arrive as real booleans.
+    if (typeof v === 'boolean') return v;
+    const s = String(v).toLowerCase();
+    if (TRUE.includes(s)) return true;
+    if (FALSE.includes(s)) return false;
     return dflt;
   }
   function num(key, dflt, min, max) {
-    const v = Number(q.get(key));
-    if (q.get(key) === null || !Number.isFinite(v)) return dflt;
+    const raw = given(key);
+    const v = Number(raw);
+    if (raw === null || !Number.isFinite(v)) return dflt;
     return Math.min(Math.max(v, min), max);
   }
   function pick(key, allowed, dflt) {
-    const v = (q.get(key) || '').toLowerCase();
+    const v = String(given(key) ?? '').toLowerCase();
     return allowed.includes(v) ? v : dflt;
   }
   // Colours land in a CSS custom property, so anything that is not plainly a
   // hex colour is rejected rather than injected.
   function colour(key, dflt) {
-    const v = q.get(key);
-    if (!v) return dflt;
+    const raw = given(key);
+    if (!raw) return dflt;
+    const v = String(raw);
     const hex = v.startsWith('#') ? v : '#' + v;
     return /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex) ? hex : dflt;
   }
@@ -305,14 +316,14 @@
     // filtering (client side, so one server can feed differently-tuned sources)
     holders: bool('holders', false),
     minbal: num('minbal', 0, 0, Number.MAX_SAFE_INTEGER),
-    censor: pick('censor', ['off', 'mask', 'drop'], q.get('censor') === '1' ? 'mask' : 'off'),
-    block: (q.get('block') || '').split(',').map((w) => w.trim()).filter(Boolean),
+    censor: pick('censor', ['off', 'mask', 'drop'], given('censor') === '1' ? 'mask' : 'off'),
+    block: String(given('block') ?? '').split(',').map((w) => w.trim()).filter(Boolean),
 
     // plumbing
     alerts: bool('alerts', false),
     alertmin: num('alertmin', 0, 0, Number.MAX_SAFE_INTEGER),
     status: bool('status', true),
-    mint: q.get('mint') || '',
+    mint: given('mint') || '',
     replay: num('replay', 10, 0, 200),
   };
 

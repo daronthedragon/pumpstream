@@ -518,3 +518,91 @@ test('an alert never injects markup', async () => {
   assert.match(who.textContent, /^<img…/);
   app.close();
 });
+
+/* ── server-supplied overlay defaults ─────────────────────────────────────
+ * A streamer sets their look once in the config file instead of in every
+ * query string. A query parameter still wins, so a second browser source can
+ * differ from the first.
+ */
+
+function mountWithServer(defaults, query = '') {
+  const injected = HTML.replace(
+    '<div id="feed"></div>',
+    `<script>window.__pumpstreamDefaults=${JSON.stringify(defaults)}</script>\n<div id="feed"></div>`
+  );
+  let socket;
+  const dom = new JSDOM(injected, {
+    url: `http://localhost:8787/overlay${query}`,
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    beforeParse(window) {
+      window.WebSocket = class {
+        constructor(url) { this.url = url; socket = this; setTimeout(() => this.onopen?.(), 0); }
+        close() { this.onclose?.(); }
+      };
+    },
+  });
+  return {
+    doc: dom.window.document,
+    window: dom.window,
+    opt: () => dom.window.__pumpstream.opt,
+    push: (type, data) => socket.onmessage({ data: JSON.stringify({ type, data }) }),
+    close: () => dom.window.close(),
+  };
+}
+
+test('server defaults apply with no query string at all', async () => {
+  const app = mountWithServer({ font: 26, alerts: true, align: 'right', accent: 'ffd479' });
+  await settle();
+  assert.equal(app.opt().font, 26);
+  assert.equal(app.opt().alerts, true);
+  assert.equal(app.opt().align, 'right');
+  assert.equal(app.doc.documentElement.style.getPropertyValue('--accent'), '#ffd479');
+  assert.ok(app.doc.body.classList.contains('align-right'));
+  app.close();
+});
+
+test('a query parameter still beats a server default', async () => {
+  const app = mountWithServer({ font: 26, align: 'right' }, '?font=12&align=left');
+  await settle();
+  assert.equal(app.opt().font, 12, 'the URL wins');
+  assert.equal(app.opt().align, 'left');
+  app.close();
+});
+
+test('a server default is validated exactly like a query parameter', async () => {
+  // Nothing from the server is trusted straight into CSS either.
+  const app = mountWithServer({ accent: 'red;background:url(http://evil/x)', font: 9999 });
+  await settle();
+  assert.equal(app.doc.documentElement.style.getPropertyValue('--accent'), '#7ee787');
+  assert.equal(app.opt().font, 96, 'still clamped');
+  app.close();
+});
+
+test('a server preset can be overridden per source', async () => {
+  const app = mountWithServer({ preset: 'minimal' }, '?bubble=0.9&avatars=1');
+  await settle();
+  assert.equal(app.opt().bubble, 0.9);
+  assert.equal(app.opt().avatars, true);
+  app.close();
+});
+
+test('with no server defaults the overlay behaves exactly as before', async () => {
+  const app = mountWithServer({});
+  await settle();
+  assert.equal(app.opt().font, 20);
+  assert.equal(app.opt().alerts, false);
+  app.close();
+});
+
+test('real JSON types from a config file are handled, not just strings', async () => {
+  // Regression: a query string is always text, so `bool()` assumed a string
+  // and threw on the real booleans a JSON config file produces.
+  const app = mountWithServer({ alerts: true, avatars: false, font: 24, ranktop: 5 });
+  await settle();
+  assert.equal(app.opt().alerts, true);
+  assert.equal(app.opt().avatars, false);
+  assert.equal(app.opt().font, 24);
+  assert.equal(app.opt().ranktop, 5);
+  app.close();
+});

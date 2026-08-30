@@ -24,6 +24,7 @@ export async function startServer({
   port = 8787,
   host = '127.0.0.1',
   bufferSize = 200,
+  overlayDefaults = {},
   ...feedOptions
 } = {}) {
   const feed = new PumpComments(feedOptions);
@@ -78,7 +79,16 @@ export async function startServer({
 
     if (url.pathname === '/overlay' || url.pathname === '/overlay.html') {
       try {
-        const html = await readFile(OVERLAY_PATH);
+        let html = await readFile(OVERLAY_PATH, 'utf8');
+        // Server-configured defaults, so a look can be set once instead of in
+        // every query string. A query parameter still wins over these.
+        if (Object.keys(overlayDefaults).length) {
+          html = html.replace(
+            '<div id="feed"></div>',
+            `<script>window.__pumpstreamDefaults=${JSON.stringify(overlayDefaults)}</script>
+<div id="feed"></div>`
+          );
+        }
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
           // OBS caches browser sources aggressively; always serve the current

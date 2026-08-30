@@ -1,47 +1,40 @@
 #!/usr/bin/env node
 import { startServer } from './server.js';
 import { fetchLiveCoins } from './adapter.js';
+import { loadConfig, describeConfig, SCHEMA, CONFIG_FILES, ConfigError } from './config.js';
 
 const argv = process.argv.slice(2);
-const flag = (name, fallback) => {
-  const i = argv.indexOf(`--${name}`);
-  return i === -1 ? fallback : argv[i + 1];
-};
 const has = (name) => argv.includes(`--${name}`);
 
-// Flags that consume the next argument — needed so `--port 8787` does not
-// leave 8787 looking like a mint.
-const TAKES_VALUE = new Set(['port', 'min-balance', 'rpc', 'history', 'prefix', 'top']);
+function usage() {
+  const flags = Object.entries(SCHEMA)
+    .filter(([, s]) => s.flag)
+    .map(([, s]) => {
+      const arg = s.type === 'bool' ? '' : s.type === 'number' ? ' <n>' : ' <s>';
+      return `  --${(s.flag + arg).padEnd(20)}${s.help}${
+        s.default !== '' && s.default !== false && !Array.isArray(s.default)
+          ? `  (${s.default})`
+          : ''
+      }`;
+    })
+    .join('\n');
 
-function positionals() {
-  const out = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a.startsWith('--')) {
-      if (TAKES_VALUE.has(a.slice(2))) i++;
-      continue;
-    }
-    out.push(...a.split(',').map((s) => s.trim()).filter(Boolean));
-  }
-  return out;
-}
-
-if (has('help') || (!argv.length && !has('discover'))) {
-  console.log(`
+  return `
 pumpstream — live pump.fun comments, gated to token holders
 
   pumpstream <mint> [<mint> ...] [options]
   pumpstream --discover                 list live tokens and their mints
+  pumpstream --print-config             show the resolved config and where each value came from
 
 Options
-  --port <n>          local server port            (default 8787)
-  --holders-only      drop comments from non-holders
-  --min-balance <n>   tokens required to count as a holder   (default 0)
-  --top <n>           only the n largest holders may appear
-  --rpc <url>         Solana RPC (use a paid one for real traffic)
-  --history <n>       replay the last n comments on connect  (default 0)
-  --prefix <s>        command prefix, '' to disable          (default !)
-  --quiet             do not print comments to stdout
+${flags}
+  --config <path>       config file to read
+  --print-config        resolve everything, print it, exit
+  --help                this
+
+Every option can also come from a config file (${CONFIG_FILES[0]}) or the
+environment (PUMPSTREAM_RPC, PUMPSTREAM_TOP_HOLDERS, …). Flags beat env,
+env beats the file, the file beats defaults. Booleans accept --no-<flag>.
 
 Commands
   Holders typing !something emit a 'command' event, for driving a game
@@ -49,8 +42,34 @@ Commands
 
 Consume it
   ws://localhost:8787            JSON events
-  GET /overlay  /overlay/config  /health  /comments  /stats
-`);
+  GET /overlay  /overlay/config  /health  /comments  /holders  /stats
+`;
+}
+
+if (has('help') || (!argv.length && !has('discover') && !has('print-config'))) {
+  console.log(usage());
+  process.exit(0);
+}
+
+let config, sources, file, unknown;
+try {
+  ({ config, sources, file, unknown } = await loadConfig({ argv, env: process.env }));
+} catch (err) {
+  console.error(`\n${err instanceof ConfigError ? err.message : err}\n`);
+  process.exit(1);
+}
+
+if (unknown.length) {
+  // Ignoring a typo silently means the setting just never applies.
+  console.error(`\nunknown option${unknown.length > 1 ? 's' : ''}: ${unknown.map((u) => '--' + u).join(', ')}`);
+  console.error(`run with --help to see what is available\n`);
+  process.exit(1);
+}
+
+if (has('print-config')) {
+  console.log(`\nresolved config${file ? ` (file: ${file})` : ''}:\n`);
+  console.log(describeConfig(config, sources));
+  console.log('');
   process.exit(0);
 }
 
@@ -66,11 +85,7 @@ if (has('discover')) {
   process.exit(0);
 }
 
-const port = Number(flag('port', 8787));
-const holdersOnly = has('holders-only');
-const mints = positionals();
-
-if (!mints.length) {
+if (!config.mints.length) {
   console.error('\npumpstream needs at least one mint. Find one with --discover.\n');
   process.exit(1);
 }
@@ -78,14 +93,21 @@ if (!mints.length) {
 let app;
 try {
   app = await startServer({
-    port,
-    mints,
-    holdersOnly,
-    minBalance: Number(flag('min-balance', 0)),
-    rpcUrl: flag('rpc', undefined),
-    history: Number(flag('history', 0)),
-    commandPrefix: flag('prefix', '!'),
-    topHolders: Number(flag('top', 0)),
+    port: config.port,
+    host: config.host,
+    bufferSize: config.bufferSize,
+    mints: config.mints,
+    holdersOnly: config.holdersOnly,
+    minBalance: config.minBalance,
+    topHolders: config.topHolders,
+    history: config.history,
+    commandPrefix: config.commandPrefix,
+    rpcUrl: config.rpcUrl || undefined,
+    roster: config.roster,
+    rosterTtlMs: config.rosterTtlMs,
+    holderTtlMs: config.holderTtlMs,
+    minDelta: config.minDelta,
+    overlayDefaults: config.overlay,
   });
 } catch (err) {
   // A startup failure is a user-facing message, not a stack trace.
@@ -95,10 +117,15 @@ try {
 
 console.log(`\npumpstream listening on ${app.url}`);
 console.log(`  mint         ${app.feed.mints.join(', ')}`);
-console.log(`  holders-only ${holdersOnly}`);
-console.log(`  websocket    ws://127.0.0.1:${port}\n`);
+console.log(`  holders-only ${config.holdersOnly}`);
+if (config.topHolders) console.log(`  top holders  ${config.topHolders}`);
+if (file) console.log(`  config       ${file}`);
+if (Object.keys(config.overlay).length) {
+  console.log(`  overlay      ${Object.entries(config.overlay).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+}
+console.log(`  websocket    ws://${config.host}:${config.port}\n`);
 
-if (!has('quiet')) {
+if (!config.quiet) {
   app.feed.on('comment', (c) => {
     const who = c.username || c.author.slice(0, 6);
     const bal = c.balance ? ` [${Math.round(c.balance).toLocaleString()}]` : '';
