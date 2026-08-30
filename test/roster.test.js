@@ -448,3 +448,85 @@ test('the feed re-emits changes as holderChange events with the mint', async () 
     globalThis.fetch = original;
   }
 });
+
+/* ── keeping the roster warm ──────────────────────────────────────────────
+ * The roster used to refresh only when a comment arrived, so balance-change
+ * alerts went silent in a quiet room — exactly when a big buy matters most.
+ */
+
+test('without watching, a silent room produces no refreshes', async () => {
+  const original = globalThis.fetch;
+  const calls = stubRoster({ accounts: [account(pubkey(60), 1n)] });
+  try {
+    const g = new HolderGate({ mint: MINT, rosterTtlMs: 20 });
+    await g.check(base58(pubkey(60)));
+    assert.equal(calls.getProgramAccounts, 1);
+    await new Promise((r) => setTimeout(r, 120)); // several TTLs of silence
+    assert.equal(calls.getProgramAccounts, 1, 'nothing drives a refresh on its own');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('watch() keeps refreshing with no chat at all', async () => {
+  const original = globalThis.fetch;
+  const calls = stubRoster({ accounts: [account(pubkey(61), 1n)] });
+  try {
+    const g = new HolderGate({ mint: MINT, rosterTtlMs: 25 });
+    g.onRosterError = () => {};
+    g.watch();
+    await new Promise((r) => setTimeout(r, 140));
+    g.unwatch();
+    assert.ok(calls.getProgramAccounts >= 3, `expected repeated refreshes, got ${calls.getProgramAccounts}`);
+
+    const settled = calls.getProgramAccounts;
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(calls.getProgramAccounts, settled, 'unwatch() actually stops it');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('watching stops by itself if the endpoint refuses the roster', async () => {
+  const original = globalThis.fetch;
+  const calls = stubRoster({ programError: 410 });
+  try {
+    const g = new HolderGate({ mint: MINT, rosterTtlMs: 15 });
+    g.onRosterError = () => {};
+    g.onError = () => {};
+    await g.check(base58(pubkey(62)));           // marks it refused
+    g.watch();
+    const after = calls.getProgramAccounts;
+    await new Promise((r) => setTimeout(r, 90));
+    assert.equal(calls.getProgramAccounts, after, 'no point polling a refused call');
+    assert.equal(g.watchTimer, null, 'and it cleaned up its own timer');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('the feed only polls while something listens for holderChange', async () => {
+  const { PumpComments } = await import('../src/index.js');
+  const original = globalThis.fetch;
+  const calls = stubRoster({ accounts: [account(pubkey(63), 1n)] });
+  try {
+    const feed = new PumpComments({ mint: MINT, rosterTtlMs: 25 });
+    feed.on('error', () => {});
+    const gate = feed.gates.get(MINT);
+    assert.equal(gate.watchTimer, null, 'idle until someone cares');
+
+    const handler = () => {};
+    feed.on('holderChange', handler);
+    assert.ok(gate.watchTimer, 'a listener starts the polling');
+
+    feed.off('holderChange', handler);
+    assert.equal(gate.watchTimer, null, 'the last listener leaving stops it');
+
+    feed.on('holderChange', handler);
+    feed.stop();
+    assert.equal(gate.watchTimer, null, 'stop() always stops it');
+    void calls;
+  } finally {
+    globalThis.fetch = original;
+  }
+});

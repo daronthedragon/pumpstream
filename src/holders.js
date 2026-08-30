@@ -91,6 +91,7 @@ export class HolderGate {
     this.tokenProgram = null;
     this.decimals = null;
     this.rosterTotal = 0;
+    this.watchTimer = null;
     // Ignore balance moves smaller than this when diffing snapshots.
     this.minDelta = minDelta;
 
@@ -327,6 +328,34 @@ export class HolderGate {
     const out = await res.json();
     if (out.error) throw new Error(out.error.message ?? `RPC error on ${method}`);
     return out.result;
+  }
+
+  /**
+   * Keep the roster fresh on a timer, independently of chat.
+   *
+   * Without this the roster only refreshes when a comment arrives, so
+   * balance-change alerts go silent in a quiet room — precisely when someone
+   * watching for a big buy most wants to see one.
+   */
+  watch() {
+    if (this.watchTimer || !this.rosterEnabled) return this;
+    const tick = () => {
+      if (this.rosterRefused) return this.unwatch();
+      this.rosterPromise ??= this.#refreshRoster().finally(() => {
+        this.rosterPromise = null;
+      });
+    };
+    this.watchTimer = setInterval(tick, this.rosterTtlMs);
+    // Never let this alone hold the process open.
+    this.watchTimer.unref?.();
+    tick();
+    return this;
+  }
+
+  unwatch() {
+    clearInterval(this.watchTimer);
+    this.watchTimer = null;
+    return this;
   }
 
   /**

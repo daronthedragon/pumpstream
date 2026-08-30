@@ -91,6 +91,19 @@ export class PumpComments extends EventEmitter {
       };
     }
 
+    // Polling the roster costs a request every rosterTtlMs, so only do it when
+    // somebody is actually listening for the changes it produces.
+    this.on('newListener', (event) => {
+      if (event === 'holderChange' && this.listenerCount('holderChange') === 0) {
+        for (const gate of this.gates.values()) gate.watch();
+      }
+    });
+    this.on('removeListener', (event) => {
+      if (event === 'holderChange' && this.listenerCount('holderChange') === 0) {
+        for (const gate of this.gates.values()) gate.unwatch();
+      }
+    });
+
     this.ws = null;
     this.connected = false;
     this.stopped = false;
@@ -132,6 +145,7 @@ export class PumpComments extends EventEmitter {
 
   stop() {
     this.stopped = true;
+    for (const gate of this.gates.values()) gate.unwatch();
     clearTimeout(this.retryTimer);
     this.ws?.close();
     this.ws = null;
