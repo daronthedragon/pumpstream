@@ -144,6 +144,35 @@
 
   .text { line-height: 1.35; overflow-wrap: anywhere; }
 
+  /* ── buy / sell alerts ─────────────────────────────────────────────────
+     Same feed, deliberately different shape so a glance tells them apart
+     from chat. Colour is not the only signal — the arrow and label carry it
+     too, so this still reads for a colour-blind viewer. */
+  .alert {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-weight: 700;
+    border-left-color: #3fb950;
+  }
+  body.align-right .alert { border-right-color: #3fb950; }
+  .alert.sell { border-left-color: #f85149; }
+  body.align-right .alert.sell { border-right-color: #f85149; }
+  .alert .arrow { font-size: 1.1em; color: #3fb950; }
+  .alert.sell .arrow { color: #f85149; }
+  .alert .amount { color: #3fb950; font-variant-numeric: tabular-nums; }
+  .alert.sell .amount { color: #f85149; }
+  .alert .who { opacity: 0.85; font-weight: 600; }
+  .alert .label {
+    font-size: 0.68em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(128, 128, 128, 0.3);
+  }
+
   .reply {
     font-size: 0.78em;
     opacity: 0.65;
@@ -280,6 +309,8 @@
     block: (q.get('block') || '').split(',').map((w) => w.trim()).filter(Boolean),
 
     // plumbing
+    alerts: bool('alerts', false),
+    alertmin: num('alertmin', 0, 0, Number.MAX_SAFE_INTEGER),
     status: bool('status', true),
     mint: q.get('mint') || '',
     replay: num('replay', 10, 0, 200),
@@ -453,13 +484,52 @@
     if (head.childElementCount) bodyEl.append(head);
     bodyEl.append(text);
     el.append(bodyEl);
-    feed.append(el);
+    place(el);
+  }
 
-    // Count only pills that are NOT already animating out; counting every
-    // child means this loop can never make progress and locks up the source.
+  /** A buy or sell, rendered in the same feed as chat. */
+  function addAlert(c) {
+    if (!opt.alerts) return;
+    if (Math.abs(c.delta) < opt.alertmin) return;
+
+    const el = document.createElement('div');
+    el.className = 'msg alert' + (c.type === 'sell' ? ' sell' : '');
+
+    const arrow = document.createElement('span');
+    arrow.className = 'arrow';
+    arrow.textContent = c.type === 'sell' ? '▼' : '▲';
+
+    const amount = document.createElement('span');
+    amount.className = 'amount';
+    amount.textContent = (c.delta > 0 ? '+' : '−') + format(Math.abs(c.delta));
+
+    const who = document.createElement('span');
+    who.className = 'who';
+    // No username on chain — the wallet is all we have.
+    who.textContent = c.owner ? c.owner.slice(0, 4) + '…' + c.owner.slice(-4) : '';
+
+    el.append(arrow, amount, who);
+
+    if (c.first || c.exit) {
+      const label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = c.first ? 'new holder' : 'exit';
+      el.append(label);
+    } else if (opt.rank && c.rank > 0 && c.rank <= opt.ranktop) {
+      const r = document.createElement('span');
+      r.className = c.rank <= 3 ? 'rank top' : 'rank';
+      r.textContent = '#' + c.rank;
+      el.append(r);
+    }
+
+    place(el);
+  }
+
+  /** Shared tail: append, trim to max, schedule the fade. */
+  function place(el) {
+    feed.append(el);
     const live = [...feed.children].filter((m) => !m.classList.contains('leaving'));
     while (live.length > opt.max) remove(live.shift());
-
     if (opt.fade > 0) setTimeout(() => remove(el), opt.fade * 1000);
   }
 
@@ -476,6 +546,7 @@
     ws.onmessage = (ev) => {
       const { type, data } = JSON.parse(ev.data);
       if (type === 'comment') return add(data);
+      if (type === 'holderChange') return addAlert(data);
       // A broken feed must never just look like a quiet chat.
       if (type === 'drift') return setStatus('pumpstream: upstream changed');
       if (type === 'degraded') return setStatus('pumpstream: holder checks failing');

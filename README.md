@@ -167,6 +167,12 @@ Biggest moves arrive first. `minDelta` filters dust; `rosterTtlMs` sets how ofte
 
 **This is inferred, not a transaction feed.** It is the net change in a balance between two refreshes: a wallet that bought and sold the same amount in between shows up as nothing at all, and one event can be several trades. Read it as "their bag got bigger", not "they placed a buy". It also needs the roster — an endpoint that refuses `getProgramAccounts` gets no alerts, and says so via the `error` event with `scope: 'roster'`.
 
+Put them on stream with `?alerts=1` on the overlay:
+
+![Buy and sell alerts in the overlay](docs/overlay-alerts.png)
+
+*Alerts share the feed with chat, in a deliberately different shape. The arrow and the label carry the meaning, so it still reads without colour.*
+
 See `examples/alerts.js`.
 
 ## Local server
@@ -188,6 +194,7 @@ From a clone, `npm start -- <mint>` and `npm run discover` do the same thing.
 | `GET /overlay/config` | live builder for the overlay |
 | `GET /health` | liveness + upstream connection state |
 | `GET /comments?limit=50` | recent buffer, for polling clients |
+| `GET /holders?limit=20` | top holders with rank and share, from the roster |
 | `GET /stats` | counters + holder-cache efficiency |
 
 Filter a socket to one mint with `ws://localhost:8787?mint=<mint>`. CORS is open, so a browser page or game client can read it directly. See `examples/consume.html`.
@@ -280,6 +287,8 @@ One parameter for a whole look. Anything you set explicitly still wins over the 
 | `badges` | `1` | `dev` / `mod` tags |
 | `replies` | `1` | quoted parent of a reply |
 | `time` | `0` | `HH:MM` timestamp |
+| `alerts` | `0` | show buy/sell alerts in the feed |
+| `alertmin` | `0` | hide alerts smaller than this |
 | `status` | `1` | corner badge when the feed breaks |
 
 **Filtering and plumbing**
@@ -411,7 +420,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-97 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+104 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

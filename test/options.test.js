@@ -431,3 +431,90 @@ test('a custom block term containing regex characters cannot break the filter', 
   );
   app.close();
 });
+
+/* ── buy / sell alerts in the overlay ─────────────────────────────────────*/
+
+const change = (over = {}) => ({
+  mint: 'mint1', type: 'buy', first: false, exit: false,
+  owner: 'FYNWkGx9f1PLtdtvVw3bnty5bDbGKZ3UirJMcU25VX7c',
+  before: 100, after: 1600, delta: 1500, rank: 12, share: 0.01, ...over,
+});
+
+test('alerts are off by default, so an existing overlay is unchanged', async () => {
+  const app = mount();
+  await settle();
+  app.push('holderChange', change());
+  assert.equal(app.doc.querySelector('.alert'), null);
+  app.close();
+});
+
+test('a buy and a sell render distinguishably without relying on colour', async () => {
+  const app = mount('?alerts=1');
+  await settle();
+  app.push('holderChange', change());
+  app.push('holderChange', change({ type: 'sell', delta: -2500, after: 0 }));
+
+  const alerts = [...app.doc.querySelectorAll('.alert')];
+  assert.equal(alerts.length, 2);
+  assert.equal(alerts[0].querySelector('.arrow').textContent, '▲');
+  assert.equal(alerts[0].querySelector('.amount').textContent, '+1.5K');
+  assert.ok(alerts[1].classList.contains('sell'));
+  assert.equal(alerts[1].querySelector('.arrow').textContent, '▼');
+  assert.equal(alerts[1].querySelector('.amount').textContent, '−2.5K');
+  app.close();
+});
+
+test('new holders and full exits are labelled', async () => {
+  const app = mount('?alerts=1');
+  await settle();
+  app.push('holderChange', change({ first: true, before: 0 }));
+  app.push('holderChange', change({ type: 'sell', exit: true, after: 0, delta: -900 }));
+
+  const labels = [...app.doc.querySelectorAll('.alert .label')].map((l) => l.textContent);
+  assert.deepEqual(labels, ['new holder', 'exit']);
+  app.close();
+});
+
+test('the wallet is shortened, never shown in full', async () => {
+  const app = mount('?alerts=1');
+  await settle();
+  app.push('holderChange', change());
+  const who = app.doc.querySelector('.alert .who').textContent;
+  assert.equal(who, 'FYNW…VX7c', 'first four, last four');
+  assert.ok(who.length < 20, 'a full pubkey would blow the layout out');
+  app.close();
+});
+
+test('alertmin hides small movement', async () => {
+  const app = mount('?alerts=1&alertmin=1000');
+  await settle();
+  app.push('holderChange', change({ delta: 500 }));
+  app.push('holderChange', change({ delta: -5000, type: 'sell' }));
+  const amounts = [...app.doc.querySelectorAll('.alert .amount')].map((a) => a.textContent);
+  assert.deepEqual(amounts, ['−5K'], 'only the big move survived');
+  app.close();
+});
+
+test('alerts share the trim budget with comments', async () => {
+  const app = mount('?alerts=1&max=3');
+  await settle();
+  for (let i = 0; i < 4; i++) app.push('comment', comment({ id: 'c' + i, text: 'm' + i }));
+  for (let i = 0; i < 4; i++) app.push('holderChange', change({ delta: 100 + i }));
+  await settle();
+
+  const live = [...app.doc.querySelectorAll('.msg')].filter(
+    (m) => !m.classList.contains('leaving')
+  );
+  assert.equal(live.length, 3, 'one feed, one max');
+  app.close();
+});
+
+test('an alert never injects markup', async () => {
+  const app = mount('?alerts=1');
+  await settle();
+  app.push('holderChange', change({ owner: '<img src=x onerror=alert(1)>abcd' }));
+  const who = app.doc.querySelector('.alert .who');
+  assert.equal(who.querySelector('img'), null);
+  assert.match(who.textContent, /^<img…/);
+  app.close();
+});

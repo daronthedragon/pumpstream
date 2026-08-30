@@ -17,6 +17,7 @@ const CONFIG_PATH = fileURLToPath(new URL('./config.html', import.meta.url));
  *   GET  /overlay/config                live builder for overlay options
  *   GET  /health                        liveness + upstream state
  *   GET  /comments?limit=50&mint=<m>    recent buffer (polling clients)
+ *   GET  /holders?limit=20&mint=<m>     top holders, from the roster
  *   GET  /stats                         counters + holder-cache efficiency
  */
 export async function startServer({
@@ -107,6 +108,22 @@ export async function startServer({
       return send(200, { count: items.length, comments: items });
     }
 
+    if (url.pathname === '/holders') {
+      const limit = Math.min(Number(url.searchParams.get('limit')) || 20, 500);
+      const mint = url.searchParams.get('mint') || feed.mints[0];
+      const gate = feed.gates.get(mint);
+      if (!gate) return send(404, { error: `not following ${mint}`, mints: feed.mints });
+      const top = await gate.top(limit);
+      return send(200, {
+        mint,
+        holders: gate.stats.rosterHolders,
+        supply: gate.rosterTotal,
+        // Empty when the endpoint refuses getProgramAccounts.
+        rosterAvailable: !gate.stats.rosterRefused,
+        top,
+      });
+    }
+
     if (url.pathname === '/stats') {
       return send(200, {
         ...feed.stats,
@@ -116,7 +133,7 @@ export async function startServer({
       });
     }
 
-    return send(404, { error: 'not found', routes: ['/overlay', '/overlay/config', '/health', '/comments', '/stats'] });
+    return send(404, { error: 'not found', routes: ['/overlay', '/overlay/config', '/health', '/comments', '/holders', '/stats'] });
   });
 
   const wss = new WebSocketServer({ server });

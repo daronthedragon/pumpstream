@@ -329,6 +329,19 @@ export class HolderGate {
     return out.result;
   }
 
+  /**
+   * The biggest holders, straight from the roster. Empty when the endpoint
+   * refuses getProgramAccounts — there is no cheap way to rank without it.
+   */
+  async top(limit = 20) {
+    const roster = await this.#ensureRoster();
+    if (!roster) return [];
+    return [...roster]
+      .sort((a, b) => a[1].rank - b[1].rank)
+      .slice(0, Math.max(0, limit))
+      .map(([owner, e]) => ({ owner, balance: e.balance, rank: e.rank, share: e.share }));
+  }
+
   #result(balance, unknown = balance === null) {
     if (unknown) return { holder: false, balance: 0, unknown: true };
     return { holder: balance > this.minBalance, balance };

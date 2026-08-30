@@ -115,10 +115,18 @@
       ['badges', 'check', true],
       ['replies', 'check', true],
       ['time', 'check', false],
+      ['rank', 'check', true],
+      ['ranktop', 'number', 100],
+      ['share', 'check', false],
       ['status', 'check', true],
+    ]],
+    ['Alerts', [
+      ['alerts', 'check', false],
+      ['alertmin', 'number', 0],
     ]],
     ['Filter', [
       ['holders', 'check', false],
+      ['censor', 'select', 'off', ['off', 'mask', 'drop']],
       ['minbal', 'number', 0],
       ['replay', 'number', 10],
       ['mint', 'text', ''],
