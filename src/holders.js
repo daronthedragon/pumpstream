@@ -228,34 +228,7 @@ export class HolderGate {
         total += ui;
       }
 
-      // Having every holder in hand makes rank and share free — one sort per
-      // refresh instead of a query per commenter. Rank is 1-based, biggest
-      // bag first; share is a fraction of everything sitting in token
-      // accounts, which is the honest denominator here.
-      const ranked = [...balances].sort((a, b) => b[1] - a[1]);
-      const roster = new Map();
-      ranked.forEach(([owner, balance], i) => {
-        roster.set(owner, {
-          balance,
-          rank: i + 1,
-          share: total > 0 ? balance / total : 0,
-        });
-      });
-
-      // Two snapshots of every balance is enough to see who bought and who
-      // sold, for no extra requests. See #diffRosters for what that does and
-      // does not mean.
-      const previous = this.roster;
-      this.rosterTotal = total;
-      this.roster = roster;
-      if (previous) {
-        const changes = this.#diffRosters(previous, roster);
-        if (changes.length) this.onHolderChanges?.(changes);
-      }
-      this.rosterAt = Date.now();
-      this.stats.rosterFetches++;
-      this.stats.rosterHolders = roster.size;
-      this.consecutiveErrors = 0;
+      this.applyBalances(balances, total);
     } catch (err) {
       // Plenty of endpoints refuse getProgramAccounts because it is expensive
       // to serve. That is not a failure — it just means per-wallet lookups.
@@ -328,6 +301,49 @@ export class HolderGate {
     const out = await res.json();
     if (out.error) throw new Error(out.error.message ?? `RPC error on ${method}`);
     return out.result;
+  }
+
+  /**
+   * Turn raw balances into a ranked roster and report what moved.
+   *
+   * Public so a synthetic source (see src/demo.js) drives exactly this code
+   * rather than a parallel fake — ranking, share, and the buy/sell diff are
+   * the same lines whether the balances came from an RPC or from nowhere.
+   *
+   * @param {Map<string, number>} balances wallet -> UI amount
+   * @param {number} [total] defaults to the sum of the balances
+   */
+  applyBalances(balances, total = [...balances.values()].reduce((a, b) => a + b, 0)) {
+    // Having every holder in hand makes rank and share free — one sort per
+    // refresh instead of a query per commenter. Rank is 1-based, biggest bag
+    // first; share is a fraction of everything sitting in token accounts,
+    // which is the honest denominator here.
+    const ranked = [...balances].sort((a, b) => b[1] - a[1]);
+    const roster = new Map();
+    ranked.forEach(([owner, balance], i) => {
+      roster.set(owner, {
+        balance,
+        rank: i + 1,
+        share: total > 0 ? balance / total : 0,
+      });
+    });
+
+    // Two snapshots of every balance is enough to see who bought and who
+    // sold, for no extra requests. See #diffRosters for what that does and
+    // does not mean.
+    const previous = this.roster;
+    this.rosterTotal = total;
+    this.roster = roster;
+    this.rosterAt = Date.now();
+    this.stats.rosterFetches++;
+    this.stats.rosterHolders = roster.size;
+    this.consecutiveErrors = 0;
+
+    if (previous) {
+      const changes = this.#diffRosters(previous, roster);
+      if (changes.length) this.onHolderChanges?.(changes);
+    }
+    return roster;
   }
 
   /**

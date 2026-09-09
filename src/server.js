@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { PumpComments } from './index.js';
+import { installDemo } from './demo.js';
 
 const OVERLAY_PATH = fileURLToPath(new URL('./overlay.html', import.meta.url));
 const CONFIG_PATH = fileURLToPath(new URL('./config.html', import.meta.url));
@@ -27,9 +28,11 @@ export async function startServer({
   host = '127.0.0.1',
   bufferSize = 200,
   overlayDefaults = {},
+  demo = false,
+  demoOptions = {},
   ...feedOptions
 } = {}) {
-  const feed = new PumpComments(feedOptions);
+  const feed = new PumpComments({ ...feedOptions, demo });
   const buffer = [];
   const clients = new Set();
 
@@ -132,6 +135,8 @@ export async function startServer({
         mints: feed.mints,
         holdersOnly: feed.holdersOnly,
         subscribers: clients.size,
+        // Loudly true so nothing downstream mistakes invented data for real.
+        demo,
         // What the overlay renders with before any query string.
         overlayDefaults,
       });
@@ -224,12 +229,15 @@ export async function startServer({
     server.listen(port, host, resolve);
   });
   await feed.start();
+  const demoSource = demo ? installDemo(feed, demoOptions) : null;
 
   return {
     feed,
+    demo,
     server,
     url: `http://${host}:${port}`,
     async close() {
+      demoSource?.stop();
       feed.stop();
       for (const ws of clients) ws.close();
       wss.close();

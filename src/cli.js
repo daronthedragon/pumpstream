@@ -23,6 +23,7 @@ function usage() {
 pumpstream — live pump.fun comments, gated to token holders
 
   pumpstream <mint> [<mint> ...] [options]
+  pumpstream --demo                     synthetic chat, no token needed
   pumpstream --discover                 list live tokens and their mints
   pumpstream --print-config             show the resolved config and where each value came from
 
@@ -85,8 +86,16 @@ if (has('discover')) {
   process.exit(0);
 }
 
+// Demo mode invents its own token, so it must not demand a real one — that
+// precondition is exactly what it exists to remove.
+if (config.demo && !config.mints.length) {
+  config.mints = ['DEMOxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxpump'];
+  sources.mints = 'demo';
+}
+
 if (!config.mints.length) {
-  console.error('\npumpstream needs at least one mint. Find one with --discover.\n');
+  console.error('\npumpstream needs at least one mint. Find one with --discover,');
+  console.error('or try it with no token at all:  pumpstream --demo\n');
   process.exit(1);
 }
 
@@ -108,6 +117,12 @@ try {
     holderTtlMs: config.holderTtlMs,
     minDelta: config.minDelta,
     overlayDefaults: config.overlay,
+    demo: config.demo,
+    demoOptions: {
+      rate: config.demoRate,
+      holders: config.demoHolders,
+      seed: config.demoSeed,
+    },
   });
 } catch (err) {
   // A startup failure is a user-facing message, not a stack trace.
@@ -116,6 +131,10 @@ try {
 }
 
 console.log(`\npumpstream listening on ${app.url}`);
+if (config.demo) {
+  // Say it plainly and repeatedly: none of this data is real.
+  console.log('  MODE         DEMO — synthetic chat and holders, nothing is real');
+}
 console.log(`  mint         ${app.feed.mints.join(', ')}`);
 console.log(`  holders-only ${config.holdersOnly}`);
 if (config.topHolders) console.log(`  top holders  ${config.topHolders}`);

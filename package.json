@@ -19,9 +19,10 @@
   "scripts": {
     "start": "node src/cli.js",
     "discover": "node src/cli.js --discover",
-    "test": "node --test test/config.test.js test/builder.test.js test/leaderboard.test.js test/smoke.test.js test/overlay.test.js test/options.test.js test/commands.test.js test/rpc-fallback.test.js test/roster.test.js",
+    "test": "node --test test/config.test.js test/demo.test.js test/builder.test.js test/leaderboard.test.js test/smoke.test.js test/overlay.test.js test/options.test.js test/commands.test.js test/rpc-fallback.test.js test/roster.test.js",
     "test:live": "node test/live.js",
-    "test:transparency": "node test/transparency.js"
+    "test:transparency": "node test/transparency.js",
+    "demo": "node src/cli.js --demo"
   },
   "engines": {
     "node": ">=18"

@@ -25,6 +25,27 @@ pumpstream listening on http://127.0.0.1:8787
 ✓ vukasle [412,900]: exited at 30k back at it in 100k
 ```
 
+## Try it with no token at all
+
+```bash
+npx github:daronthedragon/pumpstream --demo
+```
+
+Synthetic chat, holders, commands and buy/sell alerts, immediately — **no mint, no RPC, no network calls whatsoever**. Set up your OBS sources, position them and tune the look without waiting for a live token to be busy.
+
+It drives the *real* pipeline rather than a parallel fake: messages go through the same `ingest()` path as live traffic, so they are normalised, gated, and turned into commands identically; balances go through the same `applyBalances()`, so ranks, share and the buy/sell diff are the same code. What you tune against demo data behaves the same on real data.
+
+The synthetic distribution is shaped to match measurements from live tokens — the top wallet holds 23–33% of supply, not 80% — because a demo used to tune a layout has to produce numbers the layout will really face.
+
+| | default | |
+|---|---|---|
+| `--demo` | off | synthetic everything |
+| `--demo-rate` | `40` | comments per minute |
+| `--demo-holders` | `60` | how many holders to invent |
+| `--demo-seed` | `7` | same seed replays the same run, so a layout bug is reproducible |
+
+`GET /health` reports `demo: true` and the banner says so on every start, so nothing downstream can mistake invented data for real.
+
 ## Why holder-gating
 
 Open token chat is mostly bots, shills, and scams. The first message this project ever pulled from a live room was a suicide-framed giveaway scam from a wallet holding **zero** of the token. A holder gate deletes that entire class of noise for free, and turns "who gets to appear on my stream" into something backed by on-chain stake rather than moderation effort.
@@ -517,7 +538,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-154 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+167 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 

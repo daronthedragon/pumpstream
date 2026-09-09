@@ -41,6 +41,7 @@ export class PumpComments extends EventEmitter {
     commandPrefix = '!',
     topHolders = 0,
     nameLimit = 5_000,
+    demo = false,
   } = {}) {
     super();
     this.mints = (mint ? [mint] : mints).filter(Boolean);
@@ -54,6 +55,8 @@ export class PumpComments extends EventEmitter {
     this.topHolders = topHolders;
     this.maxBackoffMs = maxBackoffMs;
     this.seenLimit = seenLimit;
+    // Demo mode supplies its own input, so there is nothing to connect to.
+    this.demo = demo;
 
     this.gates = new Map(
       this.mints.map((m) => [
@@ -134,6 +137,11 @@ export class PumpComments extends EventEmitter {
    */
   start({ connectTimeoutMs = 60_000 } = {}) {
     this.stopped = false;
+    if (this.demo) {
+      // No socket, no RPC. Input comes from src/demo.js instead.
+      this.connected = true;
+      return Promise.resolve(this);
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.off('open', ok);

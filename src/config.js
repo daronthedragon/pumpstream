@@ -41,6 +41,13 @@ export const SCHEMA = {
   bufferSize: { type: 'number', default: 200, min: 1, max: 10_000, flag: 'buffer', env: 'BUFFER', help: 'how many recent comments to keep' },
   quiet: { type: 'bool', default: false, flag: 'quiet', env: 'QUIET', help: 'do not print comments to stdout' },
 
+  // ── demo ────────────────────────────────────────────────────────────────
+  // Synthetic input, so setting up OBS is not blocked on finding a busy token.
+  demo: { type: 'bool', default: false, flag: 'demo', env: 'DEMO', help: 'synthetic chat and holders; no network at all' },
+  demoRate: { type: 'number', default: 40, min: 1, max: 600, flag: 'demo-rate', env: 'DEMO_RATE', help: 'demo comments per minute' },
+  demoHolders: { type: 'number', default: 60, min: 2, max: 5000, flag: 'demo-holders', env: 'DEMO_HOLDERS', help: 'how many synthetic holders to invent' },
+  demoSeed: { type: 'number', default: 7, min: 0, flag: 'demo-seed', env: 'DEMO_SEED', help: 'seed, for a reproducible demo run' },
+
   // ── overlay defaults ────────────────────────────────────────────────────
   // Set your look once here instead of in a query string every time. A query
   // parameter still wins, so a second browser source can differ.
