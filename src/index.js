@@ -40,6 +40,7 @@ export class PumpComments extends EventEmitter {
     seenLimit = 5_000,
     commandPrefix = '!',
     topHolders = 0,
+    nameLimit = 5_000,
   } = {}) {
     super();
     this.mints = (mint ? [mint] : mints).filter(Boolean);
@@ -71,7 +72,13 @@ export class PumpComments extends EventEmitter {
       gate.onHolderChanges = (changes) => {
         for (const change of changes) {
           this.stats.holderChanges++;
-          this.emit('holderChange', { mint: gate.mint, ...change });
+          // A wallet is unreadable on stream. Chat already told us who this
+          // is, so use it when we have it.
+          this.emit('holderChange', {
+            mint: gate.mint,
+            ...change,
+            ...this.nameFor(change.owner),
+          });
         }
       };
 
@@ -110,6 +117,10 @@ export class PumpComments extends EventEmitter {
     this.attempt = 0;
     this.seen = new Set();
     this.reported = new Set();
+    // wallet -> { username, avatar }, learned from chat. The chain knows
+    // addresses; only pump.fun knows what to call them.
+    this.names = new Map();
+    this.nameLimit = nameLimit;
     this.stats = { comments: 0, filtered: 0, commands: 0, holderChanges: 0, reconnects: 0 };
   }
 
@@ -164,6 +175,26 @@ export class PumpComments extends EventEmitter {
    */
   ingest(raw, { historical = false } = {}) {
     return this.#handleMessage(raw, historical);
+  }
+
+  /**
+   * What chat calls a wallet, if it has ever spoken.
+   *
+   * @returns {{username?: string, avatar?: string}} empty when unknown, so it
+   * spreads into an event without adding null fields
+   */
+  nameFor(wallet) {
+    return this.names.get(wallet) ?? {};
+  }
+
+  #remember(comment) {
+    if (!comment.author || !comment.username) return;
+    const known = this.names.get(comment.author);
+    if (known?.username === comment.username && known.avatar === comment.avatar) return;
+    this.names.set(comment.author, { username: comment.username, avatar: comment.avatar });
+    if (this.names.size > this.nameLimit) {
+      this.names.delete(this.names.keys().next().value);
+    }
   }
 
   holderStats() {
@@ -279,6 +310,9 @@ export class PumpComments extends EventEmitter {
     }
 
     comment.historical = historical;
+    // Learn the name even from replayed history — a wallet that spoke before
+    // we started is still a wallet we can label in an alert.
+    this.#remember(comment);
 
     const gate = this.gates.get(mint);
     if (gate) {

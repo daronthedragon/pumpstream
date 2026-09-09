@@ -6,6 +6,7 @@ import { PumpComments } from './index.js';
 
 const OVERLAY_PATH = fileURLToPath(new URL('./overlay.html', import.meta.url));
 const CONFIG_PATH = fileURLToPath(new URL('./config.html', import.meta.url));
+const LEADERBOARD_PATH = fileURLToPath(new URL('./leaderboard.html', import.meta.url));
 
 /**
  * Local fan-out server: one upstream pump.fun connection, many local
@@ -14,6 +15,7 @@ const CONFIG_PATH = fileURLToPath(new URL('./config.html', import.meta.url));
  *
  *   WS   ws://localhost:8787            every event as JSON lines
  *   GET  /overlay                       OBS browser source
+ *   GET  /overlay/leaderboard           top-holders widget
  *   GET  /overlay/config                live builder for overlay options
  *   GET  /health                        liveness + upstream state
  *   GET  /comments?limit=50&mint=<m>    recent buffer (polling clients)
@@ -66,6 +68,23 @@ export async function startServer({
       });
       res.end(JSON.stringify(body, null, 2));
     };
+
+    if (url.pathname === '/overlay/leaderboard') {
+      try {
+        let html = await readFile(LEADERBOARD_PATH, 'utf8');
+        if (Object.keys(overlayDefaults).length) {
+          html = html.replace(
+            '<div id="board"></div>',
+            `<script>window.__pumpstreamDefaults=${JSON.stringify(overlayDefaults)}</script>
+<div id="board"></div>`
+          );
+        }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(html);
+      } catch (err) {
+        return send(500, { error: `could not read leaderboard.html: ${err.message}` });
+      }
+    }
 
     if (url.pathname === '/overlay/config' || url.pathname === '/config') {
       try {
@@ -137,7 +156,8 @@ export async function startServer({
         supply: gate.rosterTotal,
         // Empty when the endpoint refuses getProgramAccounts.
         rosterAvailable: !gate.stats.rosterRefused,
-        top,
+        // The chain only has addresses; chat is where names come from.
+        top: top.map((h) => ({ ...h, ...feed.nameFor(h.owner) })),
       });
     }
 
@@ -150,7 +170,7 @@ export async function startServer({
       });
     }
 
-    return send(404, { error: 'not found', routes: ['/overlay', '/overlay/config', '/health', '/comments', '/holders', '/stats'] });
+    return send(404, { error: 'not found', routes: ['/overlay', '/overlay/leaderboard', '/overlay/config', '/health', '/comments', '/holders', '/stats'] });
   });
 
   const wss = new WebSocketServer({ server });

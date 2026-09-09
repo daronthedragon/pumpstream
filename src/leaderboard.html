@@ -1,0 +1,384 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>pumpstream leaderboard</title>
+<!--
+  OBS browser source: http://localhost:8787/overlay/leaderboard
+
+  Like the chat overlay, this page NEVER paints a background — OBS composites
+  it over your scene. It polls /holders rather than holding a socket open,
+  because a leaderboard changes on the roster's schedule, not chat's.
+
+  Options (query string, or the `overlay` block of pumpstream.config.json):
+    ?top=10 &font=20 &align=left &accent=7ee787 &title=Top holders
+    &share=1 &bars=1 &avatars=1 &names=1 &movement=1 &refresh=15 &mint=<mint>
+-->
+<style>
+  :root {
+    --font: 20px;
+    --accent: #7ee787;
+    --text: #ffffff;
+    --bubble-rgb: 0, 0, 0;
+    --bubble-a: 0.55;
+    --radius: 14px;
+    --gap: 6px;
+    --pad: 16px;
+  }
+  body.theme-light { --bubble-rgb: 255, 255, 255; --text: #10151b; }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    /* Same rule as the chat overlay: nothing may ever paint here, or the
+       widget shows on stream as a slab over the scene. */
+    background: transparent !important;
+    overflow: hidden;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    font-size: var(--font);
+    color: var(--text);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  }
+
+  #board {
+    position: absolute;
+    inset: 0;
+    padding: var(--pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+    align-items: stretch;
+  }
+  body.align-right #board { direction: rtl; }
+  body.align-right .row, body.align-right h1 { direction: ltr; }
+
+  h1 {
+    font-size: 0.8em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  h1:empty { display: none; }
+
+  .row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    border-radius: var(--radius);
+    background: rgba(var(--bubble-rgb), var(--bubble-a));
+    backdrop-filter: blur(3px);
+    overflow: hidden;
+    animation: enter 260ms ease;
+  }
+  body.no-bubble .row { background: none; padding: 4px 0; backdrop-filter: none; }
+  body.no-blur .row { backdrop-filter: none; }
+  body.no-anim .row { animation: none; }
+
+  @keyframes enter { from { opacity: 0; transform: translateX(-8px); } }
+  @media (prefers-reduced-motion: reduce) { .row { animation: none; } }
+
+  /* Share of supply, drawn behind the row rather than as a separate column. */
+  .bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--accent);
+    opacity: 0.16;
+    z-index: -1;
+  }
+  body.align-right .bar { inset: 0 0 0 auto; }
+
+  .rank {
+    flex: 0 0 auto;
+    min-width: 2.1em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
+  }
+  .row.top .rank { color: #f5c451; opacity: 1; }
+
+  .avatar {
+    width: 1.6em; height: 1.6em;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    object-fit: cover;
+    background: rgba(128, 128, 128, 0.25);
+  }
+
+  .who {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .who.anon { opacity: 0.75; font-family: ui-monospace, monospace; font-size: 0.85em; }
+
+  .amount { flex: 0 0 auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .share {
+    flex: 0 0 auto;
+    font-size: 0.72em;
+    font-weight: 600;
+    opacity: 0.75;
+    font-variant-numeric: tabular-nums;
+    min-width: 3.6em;
+    text-align: right;
+  }
+
+  /* Movement since the last poll. The arrow carries the meaning, so this
+     still reads without colour. */
+  .move { flex: 0 0 auto; font-size: 0.72em; font-weight: 700; min-width: 2.2em; }
+  .move.up { color: #3fb950; }
+  .move.down { color: #f85149; }
+  .move.new { color: #f5c451; }
+
+  #status {
+    position: absolute;
+    bottom: 8px; right: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 6px;
+    background: rgba(190, 40, 40, 0.9);
+    color: #fff;
+    display: none;
+  }
+  #status.show { display: block; }
+
+  #demo { position: absolute; inset: 0; z-index: -2; }
+  #demo.grid {
+    background-color: #1b2027;
+    background-image:
+      linear-gradient(45deg, #2a2f37 25%, transparent 25%),
+      linear-gradient(-45deg, #2a2f37 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #2a2f37 75%),
+      linear-gradient(-45deg, transparent 75%, #2a2f37 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+  }
+  #demo.scene { background: linear-gradient(135deg, #1e5a8a, #7a3ea8 50%, #b8562f); }
+</style>
+
+<div id="board"></div>
+<div id="status"></div>
+
+<script>
+  const q = new URLSearchParams(location.search);
+  const SERVER = window.__pumpstreamDefaults ?? {};
+  const given = (key) => (q.has(key) ? q.get(key) : SERVER[key] ?? null);
+
+  const TRUE = ['1', 'true', 'yes', 'on'];
+  const FALSE = ['0', 'false', 'no', 'off'];
+
+  function bool(key, dflt) {
+    const v = given(key);
+    if (v === null || v === undefined) return dflt;
+    if (typeof v === 'boolean') return v;
+    const s = String(v).toLowerCase();
+    if (TRUE.includes(s)) return true;
+    if (FALSE.includes(s)) return false;
+    return dflt;
+  }
+  function num(key, dflt, min, max) {
+    const raw = given(key);
+    const v = Number(raw);
+    if (raw === null || !Number.isFinite(v)) return dflt;
+    return Math.min(Math.max(v, min), max);
+  }
+  function pick(key, allowed, dflt) {
+    const v = String(given(key) ?? '').toLowerCase();
+    return allowed.includes(v) ? v : dflt;
+  }
+  // Validated, never written into CSS as given.
+  function colour(key, dflt) {
+    const raw = given(key);
+    if (!raw) return dflt;
+    const v = String(raw);
+    const hex = v.startsWith('#') ? v : '#' + v;
+    return /^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(hex) ? hex : dflt;
+  }
+
+  const opt = {
+    top: num('top', 10, 1, 100),
+    font: num('font', 20, 8, 96),
+    align: pick('align', ['left', 'right'], 'left'),
+    theme: pick('theme', ['dark', 'light'], 'dark'),
+    accent: colour('accent', '#7ee787'),
+    text: colour('text', null),
+    bubble: num('bubble', 0.55, 0, 1),
+    radius: num('radius', 14, 0, 60),
+    gap: num('gap', 6, 0, 40),
+    pad: num('pad', 16, 0, 200),
+    title: given('title') === null ? 'Top holders' : String(given('title')),
+    names: bool('names', true),
+    avatars: bool('avatars', true),
+    share: bool('share', true),
+    bars: bool('bars', true),
+    movement: bool('movement', true),
+    blur: bool('blur', true),
+    anim: bool('anim', true),
+    refresh: num('refresh', 15, 3, 3600),
+    mint: given('mint') || '',
+    status: bool('status', true),
+    demo: pick('demo', ['grid', 'scene'], ''),
+  };
+
+  const root = document.documentElement.style;
+  root.setProperty('--font', opt.font + 'px');
+  root.setProperty('--accent', opt.accent);
+  root.setProperty('--radius', opt.radius + 'px');
+  root.setProperty('--gap', opt.gap + 'px');
+  root.setProperty('--pad', opt.pad + 'px');
+  root.setProperty('--bubble-a', String(opt.bubble));
+  if (opt.text) root.setProperty('--text', opt.text);
+
+  const body = document.body;
+  body.classList.toggle('theme-light', opt.theme === 'light');
+  body.classList.toggle('align-right', opt.align === 'right');
+  body.classList.toggle('no-bubble', opt.bubble === 0);
+  body.classList.toggle('no-blur', !opt.blur);
+  body.classList.toggle('no-anim', !opt.anim);
+
+  if (opt.demo) {
+    const el = document.createElement('div');
+    el.id = 'demo';
+    el.className = opt.demo;
+    body.prepend(el);
+  }
+
+  const board = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+
+  function setStatus(text) {
+    if (!opt.status) return;
+    statusEl.textContent = text || '';
+    statusEl.classList.toggle('show', Boolean(text));
+  }
+
+  function format(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+    return String(Math.round(n));
+  }
+
+  const shortWallet = (w) => (w ? w.slice(0, 4) + '…' + w.slice(-4) : '');
+
+  // Previous ranks, so a wallet climbing the board can be shown climbing.
+  let lastRanks = new Map();
+
+  function render(data) {
+    const rows = data.top ?? [];
+    board.replaceChildren();
+
+    if (opt.title) {
+      const h = document.createElement('h1');
+      h.textContent = opt.title;
+      board.append(h);
+    }
+
+    const biggest = rows[0]?.share || 1;
+
+    for (const h of rows) {
+      const row = document.createElement('div');
+      row.className = 'row' + (h.rank <= 3 ? ' top' : '');
+
+      if (opt.bars && h.share > 0) {
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        // Relative to the biggest holder, so the shape is readable even when
+        // the top wallet owns most of the supply.
+        bar.style.width = Math.max(2, (h.share / biggest) * 100).toFixed(1) + '%';
+        row.append(bar);
+      }
+
+      const rank = document.createElement('span');
+      rank.className = 'rank';
+      rank.textContent = '#' + h.rank;
+      row.append(rank);
+
+      if (opt.avatars && h.avatar) {
+        const img = document.createElement('img');
+        img.className = 'avatar';
+        img.src = h.avatar;
+        img.alt = '';
+        img.onerror = () => img.remove();
+        row.append(img);
+      }
+
+      const who = document.createElement('span');
+      // A name only exists if that wallet has spoken in chat.
+      const named = opt.names && h.username;
+      who.className = named ? 'who' : 'who anon';
+      // textContent, never innerHTML — a username is untrusted input.
+      who.textContent = named ? h.username : shortWallet(h.owner);
+      row.append(who);
+
+      if (opt.movement) {
+        const move = document.createElement('span');
+        const before = lastRanks.get(h.owner);
+        if (before === undefined) {
+          move.className = 'move new';
+          move.textContent = lastRanks.size ? 'new' : '';
+        } else if (before > h.rank) {
+          move.className = 'move up';
+          move.textContent = '▲' + (before - h.rank);
+        } else if (before < h.rank) {
+          move.className = 'move down';
+          move.textContent = '▼' + (h.rank - before);
+        } else {
+          move.className = 'move';
+          move.textContent = '';
+        }
+        row.append(move);
+      }
+
+      const amount = document.createElement('span');
+      amount.className = 'amount';
+      amount.textContent = format(h.balance);
+      row.append(amount);
+
+      if (opt.share) {
+        const share = document.createElement('span');
+        share.className = 'share';
+        share.textContent =
+          h.share >= 0.0001 ? (h.share * 100).toFixed(2) + '%' : '<0.01%';
+        row.append(share);
+      }
+
+      board.append(row);
+    }
+
+    lastRanks = new Map(rows.map((h) => [h.owner, h.rank]));
+  }
+
+  async function poll() {
+    const params = new URLSearchParams({ limit: String(opt.top) });
+    if (opt.mint) params.set('mint', opt.mint);
+    try {
+      const res = await fetch(`/holders?${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.rosterAvailable === false) {
+        // No roster means no ranking is possible — say so rather than showing
+        // an empty widget that looks like nobody holds the token.
+        setStatus('pumpstream: no holder roster');
+        return;
+      }
+      setStatus('');
+      render(data);
+    } catch (err) {
+      setStatus('pumpstream: ' + err.message);
+    }
+  }
+
+  poll();
+  // `.unref` is a no-op in a browser; under Node it stops this timer alone
+  // from holding a process open, which keeps a failing test a failure rather
+  // than a hang.
+  setInterval(poll, opt.refresh * 1000).unref?.();
+  window.__pumpstreamBoard = { opt, poll, render };
+</script>

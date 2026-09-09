@@ -530,3 +530,112 @@ test('the feed only polls while something listens for holderChange', async () =>
     globalThis.fetch = original;
   }
 });
+
+/* ── naming the wallets ───────────────────────────────────────────────────
+ * A balance change only knows an address. Chat knows what to call it, so the
+ * feed learns names and attaches them to alerts.
+ */
+
+test('a wallet that has spoken is named in its alert', async () => {
+  const { PumpComments } = await import('../src/index.js');
+  const original = globalThis.fetch;
+  const w = pubkey(70);
+  const roster = mutableRoster([account(w, 100n)]);
+  try {
+    const feed = new PumpComments({ mint: MINT, rosterTtlMs: 1 });
+    feed.on('error', () => {});
+    const seen = [];
+    feed.on('holderChange', (h) => seen.push(h));
+
+    // The wallet comments, so we learn what it is called.
+    await feed.ingest({
+      id: 'n1', roomId: MINT, username: 'poshcrab72329', userAddress: base58(w),
+      message: 'gm', profile_image: 'https://example.test/a.png',
+      timestamp: '2026-08-08T18:23:01.144Z', messageType: 'REGULAR',
+    });
+
+    const gate = feed.gates.get(MINT);
+    roster.set([account(w, 900n)]);
+    await refresh(gate, w);
+
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].username, 'poshcrab72329', 'the alert is readable');
+    assert.equal(seen[0].avatar, 'https://example.test/a.png');
+    assert.equal(seen[0].owner, base58(w), 'the address is still there');
+    feed.stop();
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('a silent wallet gets no invented name', async () => {
+  const { PumpComments } = await import('../src/index.js');
+  const original = globalThis.fetch;
+  const w = pubkey(71);
+  const roster = mutableRoster([account(w, 100n)]);
+  try {
+    const feed = new PumpComments({ mint: MINT, rosterTtlMs: 1 });
+    feed.on('error', () => {});
+    const seen = [];
+    feed.on('holderChange', (h) => seen.push(h));
+
+    const gate = feed.gates.get(MINT);
+    await gate.check(base58(w));
+    roster.set([account(w, 900n)]);
+    await refresh(gate, w);
+
+    assert.equal(seen[0].username, undefined, 'unknown stays unknown');
+    feed.stop();
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('names are learned from replayed history too', async () => {
+  const { PumpComments } = await import('../src/index.js');
+  const feed = new PumpComments({ mint: MINT, roster: false });
+  feed.on('error', () => {});
+  feed.gates.get(MINT).check = async () => ({ holder: true, balance: 1 });
+
+  await feed.ingest({
+    id: 'h1', roomId: MINT, username: 'earlybird', userAddress: 'WALLET_H',
+    message: 'was here first', timestamp: '2026-08-08T18:23:01.144Z', messageType: 'REGULAR',
+  }, { historical: true });
+
+  assert.deepEqual(feed.nameFor('WALLET_H'), { username: 'earlybird', avatar: null });
+  feed.stop();
+});
+
+test('the name map is bounded so a long stream cannot grow forever', async () => {
+  const { PumpComments } = await import('../src/index.js');
+  const feed = new PumpComments({ mint: MINT, roster: false, nameLimit: 10 });
+  feed.on('error', () => {});
+  feed.gates.get(MINT).check = async () => ({ holder: true, balance: 1 });
+
+  for (let i = 0; i < 50; i++) {
+    await feed.ingest({
+      id: 'b' + i, roomId: MINT, username: 'u' + i, userAddress: 'W' + i,
+      message: 'hi', timestamp: '2026-08-08T18:23:01.144Z', messageType: 'REGULAR',
+    });
+  }
+  assert.equal(feed.names.size, 10, 'oldest entries are dropped');
+  assert.deepEqual(feed.nameFor('W49'), { username: 'u49', avatar: null }, 'newest kept');
+  assert.deepEqual(feed.nameFor('W0'), {}, 'oldest gone');
+  feed.stop();
+});
+
+test('a renamed wallet takes the newer name', async () => {
+  const { PumpComments } = await import('../src/index.js');
+  const feed = new PumpComments({ mint: MINT, roster: false });
+  feed.on('error', () => {});
+  feed.gates.get(MINT).check = async () => ({ holder: true, balance: 1 });
+
+  const say = (id, username) => feed.ingest({
+    id, roomId: MINT, username, userAddress: 'W_RENAME',
+    message: 'hi', timestamp: '2026-08-08T18:23:01.144Z', messageType: 'REGULAR',
+  });
+  await say('r1', 'oldname');
+  await say('r2', 'newname');
+  assert.equal(feed.nameFor('W_RENAME').username, 'newname');
+  feed.stop();
+});

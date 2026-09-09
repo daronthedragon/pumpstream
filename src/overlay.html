@@ -516,8 +516,13 @@
 
     const who = document.createElement('span');
     who.className = 'who';
-    // No username on chain — the wallet is all we have.
-    who.textContent = c.owner ? c.owner.slice(0, 4) + '…' + c.owner.slice(-4) : '';
+    // The chain only knows the address; the feed supplies a name when that
+    // wallet has spoken in chat, which is far more watchable on stream.
+    who.textContent = c.username
+      ? c.username
+      : c.owner
+        ? c.owner.slice(0, 4) + '…' + c.owner.slice(-4)
+        : '';
 
     el.append(arrow, amount, who);
 

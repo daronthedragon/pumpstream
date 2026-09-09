@@ -165,6 +165,8 @@ BUY  NEW  A82k6RRp…    +659,926  ->     659,926
 
 Biggest moves arrive first. `minDelta` filters dust; `rosterTtlMs` sets how often the snapshot is taken.
 
+Alerts carry a **username** when that wallet has spoken in chat — the chain only knows addresses, so the feed learns names from comments and joins them on. A wallet that has never commented keeps its shortened address rather than being given an invented name.
+
 Attaching a `holderChange` listener starts the roster refreshing on a timer, so **alerts keep firing in a silent room** — which is when a big buy is most worth seeing. Nothing polls until something listens, and the polling stops when the last listener goes.
 
 **This is inferred, not a transaction feed.** It is the net change in a balance between two refreshes: a wallet that bought and sold the same amount in between shows up as nothing at all, and one event can be several trades. Read it as "their bag got bigger", not "they placed a buy". It also needs the roster — an endpoint that refuses `getProgramAccounts` gets no alerts, and says so via the `error` event with `scope: 'roster'`.
@@ -241,6 +243,34 @@ The builder at `/overlay/config` reads the server's config: controls start where
 
 So the loop closes: tune it with sliders, paste it into the file, and every browser source picks it up with no query string at all.
 
+## Leaderboard widget
+
+A second browser source, for the top holders:
+
+```
+http://localhost:8787/overlay/leaderboard
+```
+
+![Top holders leaderboard](docs/leaderboard.png)
+
+*Share bars are drawn relative to the biggest holder — absolute share makes every bar invisible when one wallet owns a third of the supply.*
+
+Same transparency rule as the chat overlay, and the same options style:
+
+| | default | |
+|---|---|---|
+| `top` | `10` | how many holders to show |
+| `title` | `Top holders` | heading; empty removes it |
+| `names` | `1` | show a username when that wallet has chatted |
+| `avatars` | `1` | profile pictures |
+| `share` | `1` | percentage of supply |
+| `bars` | `1` | share drawn behind each row |
+| `movement` | `1` | `▲2` / `▼1` / `new` since the last refresh |
+| `refresh` | `15` | seconds between polls |
+| `font` `align` `accent` `bubble` `radius` `gap` `pad` `theme` | | as the chat overlay |
+
+It polls `/holders` rather than holding a socket open, because a leaderboard changes on the roster's schedule rather than chat's. If the endpoint refuses the roster it says **no holder roster** instead of showing an empty board that reads as "nobody holds this".
+
 ## Local server
 
 One upstream connection, many local subscribers.
@@ -260,7 +290,8 @@ From a clone, `npm start -- <mint>` and `npm run discover` do the same thing.
 | `GET /overlay/config` | live builder for the overlay |
 | `GET /health` | liveness + upstream connection state |
 | `GET /comments?limit=50` | recent buffer, for polling clients |
-| `GET /holders?limit=20` | top holders with rank and share, from the roster |
+| `GET /overlay/leaderboard` | the top-holders browser source |
+| `GET /holders?limit=20` | top holders with rank, share and known names |
 | `GET /stats` | counters + holder-cache efficiency |
 
 Filter a socket to one mint with `ws://localhost:8787?mint=<mint>`. CORS is open, so a browser page or game client can read it directly. See `examples/consume.html`.
@@ -486,7 +517,7 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-137 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+154 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
 Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
 
