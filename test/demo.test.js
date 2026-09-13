@@ -239,6 +239,19 @@ test('each demo wallet has its own name', async () => {
   demo.stop();
   feed.stop();
   assert.ok(byName.size >= 5, `expected several speakers, saw ${byName.size}`);
+
+  // Distinct is not enough: 'poshcrab723292' beside 'poshcrab72329' still
+  // reads as one person, which was the whole point of the fix.
+  const names = [...byName.keys()];
+  for (const a of names) {
+    for (const b of names) {
+      if (a === b) continue;
+      assert.ok(
+        !b.startsWith(a),
+        `"${b}" is "${a}" with something appended — they read as the same wallet`
+      );
+    }
+  }
 });
 
 test('the synthetic distribution resembles a real token', async () => {

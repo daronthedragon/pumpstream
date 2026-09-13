@@ -43,7 +43,8 @@ Commands
 
 Consume it
   ws://localhost:8787            JSON events
-  GET /overlay  /overlay/config  /health  /comments  /holders  /stats
+  http://localhost:8787          dashboard — start here
+  GET /overlay  /overlay/leaderboard  /overlay/config  /obs/scene.json
 `;
 }
 

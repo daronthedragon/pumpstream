@@ -25,6 +25,9 @@ pumpstream listening on http://127.0.0.1:8787
 ✓ vukasle [412,900]: exited at 30k back at it in 100k
 ```
 
+Open that URL for the dashboard: what it is doing, what is wrong if anything, and
+a one-click OBS scene.
+
 ## Try it with no token at all
 
 ```bash
@@ -306,7 +309,9 @@ From a clone, `npm start -- <mint>` and `npm run discover` do the same thing.
 
 | | |
 |---|---|
+| `http://localhost:8787` | the dashboard — start here |
 | `ws://localhost:8787` | every event as JSON `{type, data}` — including `command` and `holderChange` |
+| `GET /obs/scene.json` | importable OBS scene collection, both sources placed |
 | `GET /overlay` | the OBS browser source |
 | `GET /overlay/config` | live builder for the overlay |
 | `GET /health` | liveness + upstream connection state |
@@ -319,7 +324,45 @@ Filter a socket to one mint with `ws://localhost:8787?mint=<mint>`. CORS is open
 
 Because it fans out locally, **run one server per mint, not one connection per viewer** — see [Holder lookups](#holder-lookups-and-rate-limits).
 
+## Dashboard
+
+```
+http://localhost:8787
+```
+
+The page you land on when the server is up. It answers the three questions you
+actually have while setting this up:
+
+- **Is it working?** Upstream connection, holders in the roster, comments seen,
+  how many were filtered out, alerts fired, browser sources connected.
+- **What goes into OBS?** Every URL, with a copy button, plus the one-click scene.
+- **Is anything wrong?** Demo mode is called out in yellow so synthetic chat is
+  never mistaken for real. A holder gate that is failing — a refusing RPC, or
+  lookups erroring — gets a red banner explaining it, because otherwise it just
+  looks like a quiet room.
+
+It also shows the live feed, so you can confirm the gate is behaving before you
+go on stream.
+
 ## OBS overlay
+
+### One click
+
+Pick your canvas size on the dashboard, hit **Download scene**, then in OBS:
+**Scene Collection → Import** and choose the file. Both browser sources arrive
+sized, positioned and transparent — chat bottom-left, leaderboard top-right.
+
+```
+http://localhost:8787/obs/scene.json?width=1920&height=1080
+```
+
+One thing to get right: **OBS takes the canvas size from your profile, not from
+the scene file.** If the size you pick does not match *Settings → Video → Base
+(Canvas) Resolution*, the sources land off-screen. The dashboard's selector is
+there to make them match; font sizes scale with it, so a 720p scene is readable
+and a 4K one is not a postage stamp.
+
+### By hand
 
 Start the server, then add a **Browser Source** in OBS pointing at:
 
@@ -538,9 +581,9 @@ Not affiliated with, endorsed by, or supported by pump.fun. Read-only: it never 
 npm test
 ```
 
-167 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
+192 tests. The library half covers framing, normalization, drift detection, and the holder gate (against a stubbed RPC), built on a message captured from a live room — so upstream shape changes surface as failures rather than silence. The overlay half runs in jsdom against a fake socket, so rendering, escaping, trimming, reconnect, every toggle, and the transparency guarantee under all five presets are verified without a browser.
 
-Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation.
+Includes regressions for every bug found while building this: a transient pump.fun `502` crashing the host process, a rate-limited lookup cached as a real zero balance, a high error rate failing to raise an alert, and an overlay trim loop that spun forever once chat outpaced the exit animation, and an OBS scene whose `scale_ref` made OBS blow every source up threefold.
 
 Two opt-in checks hit real systems and are deliberately kept out of `npm test`, since neither a busy chat room nor a running OBS is something CI should depend on:
 

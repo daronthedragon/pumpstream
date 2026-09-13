@@ -12,11 +12,17 @@
  * product — it only supplies the input, and makes no network calls at all.
  */
 
+// Shaped like real pump.fun handles, and deliberately longer than the speaker
+// list: with 22 speakers and 20 names the fallback produced 'poshcrab723292'
+// beside 'poshcrab72329', so a whale and a non-holder still read as one person.
 const NAMES = [
   'poshcrab72329', 'fawkinsends', 'idekkkkkkkkkk', 'lazyorca26889', 'tumors',
   'DonkeyDonki', 'wrylobster64739', 'Chinogordo', 'meredolphin0639', 'sumsum85',
   'AkaDeekae1', 'projeeterbob', 'soresharking', 'futurehive', 'twinotter08507',
   'goldolphin4534', 'alertkraken6489', 'busycrab72253', 'Hendrixonchain', 'Marson',
+  'zoomerbaghold', 'nervousmoose11', 'Tendiesblanco', 'kwikflipkid', 'oiledsardine',
+  'MrExitLiquidity', 'gm_only_gm', 'slowrugwatcher', 'velvetgoblin8', 'JPEGjanitor',
+  'roundtripjeet', 'candlewicky', 'feralbagholder', 'onlyupsteve', 'quietwhale404',
 ];
 
 const LINES = [
@@ -83,7 +89,9 @@ export function installDemo(feed, { holders = 60, rate = 40, churn = 4, seed = 7
   const names = new Map(
     speakers.map((w, i) => [
       w,
-      i < NAMES.length ? NAMES[i] : `${NAMES[i % NAMES.length]}${Math.floor(i / NAMES.length) + 1}`,
+      // The list covers every speaker; the fallback is a guard, and keeps the
+      // two apart properly rather than tacking a digit onto a real handle.
+      i < NAMES.length ? NAMES[i] : `anon_${w.slice(0, 4).toLowerCase()}`,
     ])
   );
 

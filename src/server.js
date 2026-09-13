@@ -4,10 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { PumpComments } from './index.js';
 import { installDemo } from './demo.js';
+import { buildScene } from './obs.js';
 
 const OVERLAY_PATH = fileURLToPath(new URL('./overlay.html', import.meta.url));
 const CONFIG_PATH = fileURLToPath(new URL('./config.html', import.meta.url));
 const LEADERBOARD_PATH = fileURLToPath(new URL('./leaderboard.html', import.meta.url));
+const DASHBOARD_PATH = fileURLToPath(new URL('./dashboard.html', import.meta.url));
 
 /**
  * Local fan-out server: one upstream pump.fun connection, many local
@@ -15,6 +17,8 @@ const LEADERBOARD_PATH = fileURLToPath(new URL('./leaderboard.html', import.meta
  * Unity, Godot, OBS, a Python bot, a shell script.
  *
  *   WS   ws://localhost:8787            every event as JSON lines
+ *   GET  /                              dashboard: status, source URLs, live feed
+ *   GET  /obs/scene.json                importable OBS scene collection
  *   GET  /overlay                       OBS browser source
  *   GET  /overlay/leaderboard           top-holders widget
  *   GET  /overlay/config                live builder for overlay options
@@ -71,6 +75,39 @@ export async function startServer({
       });
       res.end(JSON.stringify(body, null, 2));
     };
+
+    // Opening the server used to answer 404 with a route list, which is a
+    // poor first thing to see.
+    if (url.pathname === '/' || url.pathname === '/index.html') {
+      try {
+        const html = await readFile(DASHBOARD_PATH);
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(html);
+      } catch (err) {
+        return send(500, { error: `could not read dashboard.html: ${err.message}` });
+      }
+    }
+
+    // A ready-made OBS scene collection: both sources, sized, positioned and
+    // already transparent. Beats hand-adding two browser sources.
+    if (url.pathname === '/obs/scene.json') {
+      const num = (key, dflt) => {
+        const v = Number(url.searchParams.get(key));
+        return Number.isFinite(v) && v > 0 ? v : dflt;
+      };
+      const scene = buildScene({
+        base: `http://${host}:${port}`,
+        width: num('width', 1920),
+        height: num('height', 1080),
+        overlay: overlayDefaults,
+      });
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-disposition': 'attachment; filename="pumpstream-scene.json"',
+        'access-control-allow-origin': '*',
+      });
+      return res.end(JSON.stringify(scene, null, 2));
+    }
 
     if (url.pathname === '/overlay/leaderboard') {
       try {
@@ -175,7 +212,7 @@ export async function startServer({
       });
     }
 
-    return send(404, { error: 'not found', routes: ['/overlay', '/overlay/leaderboard', '/overlay/config', '/health', '/comments', '/holders', '/stats'] });
+    return send(404, { error: 'not found', routes: ['/', '/overlay', '/overlay/leaderboard', '/overlay/config', '/obs/scene.json', '/health', '/comments', '/holders', '/stats'] });
   });
 
   const wss = new WebSocketServer({ server });

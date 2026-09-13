@@ -1,0 +1,344 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>pumpstream</title>
+<!--
+  Served at /. Opening the server used to return a 404 with a list of routes,
+  which is a poor first thing to see. This is the control panel: is it working,
+  what goes into OBS, and is anything wrong.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px;
+    font: 14px/1.55 'Inter', 'Segoe UI', system-ui, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    max-width: 1000px;
+  }
+  h1 { font-size: 19px; margin: 0 0 2px; }
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #8b949e; margin: 26px 0 10px; font-weight: 700;
+  }
+  a { color: #7ee787; }
+  code, .mono { font-family: ui-monospace, monospace; font-size: 12.5px; }
+
+  .sub { color: #8b949e; margin-bottom: 20px; }
+
+  /* ── status ────────────────────────────────────────────────────────────*/
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .card {
+    background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 12px 14px;
+  }
+  .card .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; }
+  .card .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .card.good .v { color: #3fb950; }
+  .card.bad  .v { color: #f85149; }
+  .card.warn .v { color: #f5c451; }
+
+  .banner {
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-weight: 600;
+    display: none;
+  }
+  .banner.show { display: block; }
+  .banner.demo { background: rgba(245, 196, 81, 0.14); border: 1px solid #f5c451; color: #f5c451; }
+  .banner.err  { background: rgba(248, 81, 73, 0.14); border: 1px solid #f85149; color: #f85149; }
+
+  /* ── sources ───────────────────────────────────────────────────────────*/
+  .row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+    background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 8px 10px;
+  }
+  .row .label { flex: 0 0 130px; font-weight: 600; }
+  .row select {
+    background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+    border-radius: 6px; padding: 6px 8px; font: inherit;
+  }
+  .row input {
+    flex: 1; min-width: 0; background: #0d1117; color: #7ee787;
+    border: 1px solid #30363d; border-radius: 6px; padding: 6px 8px;
+    font-family: ui-monospace, monospace; font-size: 12px;
+  }
+  button {
+    background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+    font: inherit; font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { background: #30363d; }
+  button.primary { background: #238636; border-color: #238636; color: #fff; }
+  button.primary:hover { background: #2ea043; }
+
+  .hint { color: #8b949e; font-size: 12.5px; margin: 8px 0 0; }
+
+  /* ── live feed ─────────────────────────────────────────────────────────*/
+  #feed {
+    background: #161b22; border: 1px solid #21262d; border-radius: 10px;
+    padding: 10px 14px; height: 260px; overflow-y: auto;
+    display: flex; flex-direction: column-reverse;
+  }
+  .line { padding: 3px 0; border-bottom: 1px solid #1b2027; }
+  .line:last-child { border-bottom: 0; }
+  .who { color: #7ee787; font-weight: 600; }
+  .meta { color: #8b949e; font-size: 11.5px; }
+  .line.alert { font-weight: 600; }
+  .line.alert.buy .amt { color: #3fb950; }
+  .line.alert.sell .amt { color: #f85149; }
+  .line.cmd .who { color: #d2a8ff; }
+  .empty { color: #8b949e; padding: 6px 0; }
+</style>
+
+<h1>pumpstream</h1>
+<div class="sub">Holder-gated pump.fun chat for your stream.</div>
+
+<div class="banner demo" id="demoBanner">
+  DEMO MODE — synthetic chat and holders. None of this data is real.
+</div>
+<div class="banner err" id="errBanner"></div>
+
+<div class="cards" id="cards"></div>
+
+<h2>Add to OBS</h2>
+<div class="row">
+  <span class="label">Canvas</span>
+  <select id="canvas">
+    <option value="1920x1080">1920 × 1080</option>
+    <option value="2560x1440">2560 × 1440</option>
+    <option value="1280x720">1280 × 720</option>
+    <option value="3840x2160">3840 × 2160</option>
+  </select>
+  <span class="hint" style="margin:0">
+    must match OBS → <b>Settings → Video → Base (Canvas) Resolution</b>
+  </span>
+</div>
+<div class="row">
+  <span class="label">One-click</span>
+  <input id="sceneUrl" readonly />
+  <button class="primary" id="download">Download scene</button>
+</div>
+<p class="hint">
+  In OBS: <b>Scene Collection → Import</b>, choose the downloaded file. It adds both
+  browser sources, sized and positioned, with transparency already set.
+  OBS takes the canvas size from your <i>profile</i>, not from the scene file —
+  so if the sizes above do not match, the sources land off-screen.
+</p>
+
+<div class="row">
+  <span class="label">Chat</span>
+  <input id="chatUrl" readonly />
+  <button data-copy="chatUrl">Copy</button>
+</div>
+<div class="row">
+  <span class="label">Leaderboard</span>
+  <input id="boardUrl" readonly />
+  <button data-copy="boardUrl">Copy</button>
+</div>
+<div class="row">
+  <span class="label">Builder</span>
+  <input id="builderUrl" readonly />
+  <button data-copy="builderUrl">Copy</button>
+</div>
+<p class="hint">
+  Prefer to add them by hand? Add a <b>Browser Source</b> and paste a URL.
+  The <a href="/overlay/config">builder</a> tunes the look and hands back a URL or a config block.
+</p>
+
+<h2>Live</h2>
+<div id="feed"><div class="empty">waiting for chat…</div></div>
+
+<script>
+  const base = location.origin;
+  const el = (id) => document.getElementById(id);
+
+  el('chatUrl').value = `${base}/overlay`;
+  el('boardUrl').value = `${base}/overlay/leaderboard`;
+  el('builderUrl').value = `${base}/overlay/config`;
+  const sceneUrlFor = () => {
+    const [w, h] = el('canvas').value.split('x');
+    return `${base}/obs/scene.json?width=${w}&height=${h}`;
+  };
+  el('sceneUrl').value = sceneUrlFor();
+  el('canvas').addEventListener('change', () => {
+    el('sceneUrl').value = sceneUrlFor();
+  });
+
+  for (const btn of document.querySelectorAll('[data-copy]')) {
+    btn.addEventListener('click', async () => {
+      const input = el(btn.dataset.copy);
+      try {
+        await navigator.clipboard.writeText(input.value);
+        btn.textContent = 'Copied';
+      } catch {
+        input.select();
+        btn.textContent = 'Select + copy';
+      }
+      setTimeout(() => (btn.textContent = 'Copy'), 1400);
+    });
+  }
+
+  // A plain link would open the JSON in a tab; this saves it, which is what
+  // OBS's importer needs.
+  el('download').addEventListener('click', async () => {
+    const btn = el('download');
+    btn.textContent = 'Preparing…';
+    try {
+      const res = await fetch(sceneUrlFor());
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'pumpstream-scene.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      btn.textContent = 'Downloaded';
+    } catch (err) {
+      btn.textContent = 'Failed';
+    }
+    setTimeout(() => (btn.textContent = 'Download scene'), 1800);
+  });
+
+  /* ── status ─────────────────────────────────────────────────────────────*/
+  const card = (k, v, cls = '') =>
+    `<div class="card ${cls}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+  const fmt = (n) => {
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(Math.round(n));
+  };
+
+  async function refresh() {
+    try {
+      const [health, stats] = await Promise.all([
+        fetch('/health').then((r) => r.json()),
+        fetch('/stats').then((r) => r.json()),
+      ]);
+
+      el('demoBanner').classList.toggle('show', Boolean(health.demo));
+
+      const gate = Object.values(stats.holders ?? {})[0] ?? {};
+      // Surface a failing holder gate here, since it is the one problem that
+      // otherwise just looks like a quiet chat.
+      const rpcTrouble = gate.rpcErrors > 0 && gate.ok === 0 && !gate.rosterHolders;
+
+      el('cards').innerHTML = [
+        card('Upstream', health.upstreamConnected ? 'connected' : 'offline',
+          health.upstreamConnected ? 'good' : 'bad'),
+        card('Holders', gate.rosterHolders ? fmt(gate.rosterHolders) : '—',
+          gate.rosterRefused ? 'warn' : ''),
+        card('Comments', fmt(stats.comments ?? 0)),
+        card('Filtered', fmt(stats.filtered ?? 0)),
+        card('Alerts', fmt(stats.holderChanges ?? 0)),
+        card('Sources', String(stats.subscribers ?? 0)),
+      ].join('');
+
+      if (gate.rosterRefused) {
+        show('errBanner',
+          'This RPC will not serve the holder roster, so ranks, share and buy/sell alerts are unavailable. Pass --rpc with a paid endpoint.');
+      } else if (rpcTrouble) {
+        show('errBanner',
+          'Holder lookups are failing. Every commenter will read as a non-holder. Pass --rpc with a paid endpoint.');
+      } else {
+        el('errBanner').classList.remove('show');
+      }
+    } catch (err) {
+      show('errBanner', 'Cannot reach the pumpstream server — is it still running?');
+    }
+  }
+
+  function show(id, text) {
+    const b = el(id);
+    b.textContent = text;
+    b.classList.add('show');
+  }
+
+  refresh();
+  setInterval(refresh, 3000);
+
+  /* ── live feed ──────────────────────────────────────────────────────────*/
+  const feed = el('feed');
+  let empty = true;
+
+  function add(node) {
+    if (empty) { feed.replaceChildren(); empty = false; }
+    feed.prepend(node);
+    while (feed.children.length > 60) {
+      const dropped = feed.lastChild;
+      if (dropped === lastNode) { lastNode = null; lastId = null; }
+      dropped.remove();
+    }
+  }
+
+  function line(cls, parts) {
+    const div = document.createElement('div');
+    div.className = 'line ' + cls;
+    for (const [kind, text] of parts) {
+      const span = document.createElement('span');
+      span.className = kind;
+      // textContent, never innerHTML — this is chat.
+      span.textContent = text;
+      div.append(span, document.createTextNode(' '));
+    }
+    return div;
+  }
+
+  // Every command arrives right after its own comment, so rendering both
+  // showed the same message twice. Keep the last line and mark it instead.
+  let lastId = null;
+  let lastNode = null;
+
+  function markCommand(node, name) {
+    node.classList.add('cmd');
+    const badge = document.createElement('span');
+    badge.className = 'who';
+    badge.textContent = '!' + name;
+    node.prepend(document.createTextNode(' '));
+    node.prepend(badge);
+  }
+
+  let backoff = 1000;
+  function connect() {
+    const ws = new WebSocket(`ws://${location.host}?replay=15`);
+    ws.onopen = () => { backoff = 1000; };
+    ws.onmessage = (ev) => {
+      const { type, data } = JSON.parse(ev.data);
+      if (type === 'comment') {
+        const node = line(data.holder ? '' : 'muted', [
+          ['who', data.username || data.author.slice(0, 6)],
+          ['meta', data.holder ? `[${fmt(data.balance)}${data.rank ? ' #' + data.rank : ''}]` : '[no bag]'],
+          ['text', data.text],
+        ]);
+        add(node);
+        lastId = data.id;
+        lastNode = node;
+      } else if (type === 'command') {
+        if (data.comment?.id && data.comment.id === lastId && lastNode) {
+          markCommand(lastNode, data.name);
+        } else {
+          // Replay never re-fires commands, so this only happens if the
+          // comment was filtered out from under us.
+          add(line('cmd', [
+            ['who', '!' + data.name],
+            ['meta', 'from ' + (data.username || data.author.slice(0, 6))],
+            ['text', data.text],
+          ]));
+        }
+      } else if (type === 'holderChange') {
+        add(line('alert ' + data.type, [
+          ['amt', (data.delta > 0 ? '▲ +' : '▼ −') + fmt(Math.abs(data.delta))],
+          ['who', data.username || data.owner.slice(0, 6) + '…'],
+          ['meta', data.first ? 'new holder' : data.exit ? 'exit' : data.rank ? '#' + data.rank : ''],
+        ]));
+      }
+    };
+    ws.onclose = () => {
+      setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 15000);
+    };
+    ws.onerror = () => ws.close();
+  }
+  connect();
+
+  window.__pumpstreamDash = { refresh };
+</script>
